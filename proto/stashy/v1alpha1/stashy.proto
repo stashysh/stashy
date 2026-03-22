@@ -41,6 +41,7 @@ service StorageService {
   rpc GetFile(GetFileRequest) returns (stream GetFileResponse) {
     option (google.api.http) = {
       get: "/v1/files/{id}"
+      response_body: "file"
     };
     option (gnostic.openapi.v3.operation) = {
       responses: {
