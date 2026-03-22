@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+option go_package = "github.com/stashysh/stashy/gen;stashy";
+
+import "gnostic/openapi/v3/annotations.proto";
+
+option (gnostic.openapi.v3.document) = {
+  info: {
+    title: "Stashy API"
+    version: "1.0.0"
+  }
+  components: {
+    security_schemes: {
+      additional_properties: [
+        {
+          name: "BearerAuth"
+          value: {
+            security_scheme: {
+              type: "http"
+              scheme: "bearer"
+              bearer_format: "opaque"
+            }
+          }
+        }
+      ]
+    }
+  }
+  security: {
+    additional_properties: {
+      name: "BearerAuth"
+      value: {}
+    }
+  }
+};

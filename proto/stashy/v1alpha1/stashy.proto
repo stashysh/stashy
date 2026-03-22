@@ -1,0 +1,87 @@
+syntax = "proto3";
+
+package stashy.v1alpha1;
+
+option go_package = "github.com/stashysh/stashy/gen/stashy/v1alpha1;stashyv1alpha1";
+
+import "google/api/annotations.proto";
+import "google/api/httpbody.proto";
+import "buf/validate/validate.proto";
+import "gnostic/openapi/v3/annotations.proto";
+
+service StorageService {
+  // Upload a file to storage.
+  rpc CreateFile(stream CreateFileRequest) returns (CreateFileResponse) {
+    option (google.api.http) = {
+      post: "/v1/files"
+      body: "file"
+    };
+    option (gnostic.openapi.v3.operation) = {
+      request_body: {
+        request_body: {
+          content: {
+            additional_properties: {
+              name: "*/*"
+              value: {
+                schema: {
+                  schema: {
+                    type: "string"
+                    format: "binary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+  }
+
+  // Download a file from storage.
+  rpc GetFile(GetFileRequest) returns (stream GetFileResponse) {
+    option (google.api.http) = {
+      get: "/v1/files/{id}"
+    };
+    option (gnostic.openapi.v3.operation) = {
+      responses: {
+        response_or_reference: {
+          name: "200"
+          value: {
+            response: {
+              description: "File content"
+              content: {
+                additional_properties: {
+                  name: "*/*"
+                  value: {
+                    schema: {
+                      schema: {
+                        type: "string"
+                        format: "binary"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+  }
+}
+
+message CreateFileRequest {
+  google.api.HttpBody file = 1;
+}
+
+message CreateFileResponse {
+  string id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message GetFileRequest {
+  string id = 1 [(buf.validate.field).string.uuid = true];
+}
+
+message GetFileResponse {
+  google.api.HttpBody file = 1;
+}

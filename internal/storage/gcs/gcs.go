@@ -1,0 +1,67 @@
+package gcs
+
+import (
+	"context"
+	"fmt"
+	"io"
+
+	gcstorage "cloud.google.com/go/storage"
+	"github.com/google/uuid"
+	"github.com/stashysh/stashy/internal/storage"
+)
+
+// Storage stores files in Google Cloud Storage.
+type Storage struct {
+	bucket *gcstorage.BucketHandle
+}
+
+func New(client *gcstorage.Client, bucketName string) *Storage {
+	return &Storage{bucket: client.Bucket(bucketName)}
+}
+
+func (s *Storage) Put(ctx context.Context, contentType string, r io.Reader) (*storage.FileMeta, error) {
+	id := uuid.New().String()
+	obj := s.bucket.Object(id)
+
+	w := obj.NewWriter(ctx)
+	w.ContentType = contentType
+
+	n, err := io.Copy(w, r)
+	if err != nil {
+		w.Close()
+		return nil, fmt.Errorf("writing to GCS: %w", err)
+	}
+
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("closing GCS writer: %w", err)
+	}
+
+	return &storage.FileMeta{
+		ID:          id,
+		ContentType: contentType,
+		Size:        n,
+	}, nil
+}
+
+func (s *Storage) Get(ctx context.Context, id string) (io.ReadCloser, *storage.FileMeta, error) {
+	obj := s.bucket.Object(id)
+
+	attrs, err := obj.Attrs(ctx)
+	if err != nil {
+		if err == gcstorage.ErrObjectNotExist {
+			return nil, nil, fmt.Errorf("file not found: %s", id)
+		}
+		return nil, nil, fmt.Errorf("getting object attrs: %w", err)
+	}
+
+	r, err := obj.NewReader(ctx)
+	if err != nil {
+		return nil, nil, fmt.Errorf("opening GCS reader: %w", err)
+	}
+
+	return r, &storage.FileMeta{
+		ID:          id,
+		ContentType: attrs.ContentType,
+		Size:        attrs.Size,
+	}, nil
+}

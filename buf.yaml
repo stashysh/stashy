@@ -1,0 +1,16 @@
+version: v2
+modules:
+  - path: proto
+    name: buf.build/stashysh/stashy
+deps:
+  - buf.build/googleapis/googleapis
+  - buf.build/bufbuild/protovalidate
+  - buf.build/gnostic/gnostic
+lint:
+  use:
+    - STANDARD
+  ignore:
+    - proto/openapi.proto
+breaking:
+  use:
+    - FILE
