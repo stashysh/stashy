@@ -13,13 +13,36 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
+	_ "github.com/go-sql-driver/mysql"
+	"github.com/joho/godotenv"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	_ "github.com/tursodatabase/go-libsql"
+
 	"github.com/stashysh/stashy/gen/stashy/v1alpha1/stashyv1alpha1connect"
+	"github.com/stashysh/stashy/internal/auth"
+	"github.com/stashysh/stashy/internal/db"
 	"github.com/stashysh/stashy/internal/service"
 	"github.com/stashysh/stashy/internal/storage"
 	"github.com/stashysh/stashy/internal/storage/gcs"
 	"github.com/stashysh/stashy/internal/storage/local"
 	"github.com/stashysh/stashy/internal/storage/memory"
+	"github.com/stashysh/stashy/internal/web"
 )
+
+func env(key, fallback string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return fallback
+}
+
+func envRequired(key string) string {
+	v := os.Getenv(key)
+	if v == "" {
+		log.Fatalf("%s is required", key)
+	}
+	return v
+}
 
 func newStorage() (storage.Storage, error) {
 	switch os.Getenv("STORAGE_BACKEND") {
@@ -28,71 +51,117 @@ func newStorage() (storage.Storage, error) {
 		if err != nil {
 			return nil, err
 		}
-		bucket := os.Getenv("GCS_BUCKET")
-		if bucket == "" {
-			log.Fatal("GCS_BUCKET is required when STORAGE_BACKEND=gcs")
-		}
-		return gcs.New(client, bucket), nil
+		return gcs.New(client, envRequired("GCS_BUCKET")), nil
 	case "local":
-		dir := os.Getenv("LOCAL_STORAGE_DIR")
-		if dir == "" {
-			dir = "./storage"
-		}
-		return local.New(dir)
+		return local.New(env("LOCAL_STORAGE_DIR", "./storage"))
 	default:
 		return memory.New(), nil
 	}
 }
 
-func rootHandler(store storage.Storage, public http.Handler) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimPrefix(r.URL.Path, "/")
+// driverFromDSN detects the database driver from the DSN scheme.
+func driverFromDSN(dsn string) string {
+	switch {
+	case strings.HasPrefix(dsn, "postgres://"), strings.HasPrefix(dsn, "postgresql://"):
+		return "pgx"
+	case strings.HasPrefix(dsn, "mysql://"):
+		return "mysql"
+	default:
+		return "libsql"
+	}
+}
 
-		// Try /{uuid} from storage first.
-		if path != "" {
-			rc, meta, err := store.Get(r.Context(), path)
-			if err == nil {
-				defer rc.Close()
-				w.Header().Set("Content-Type", meta.ContentType)
-				io.Copy(w, rc)
-				return
-			}
+func fileHandler(store storage.Storage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if id == "" {
+			http.NotFound(w, r)
+			return
 		}
 
-		// Fall back to public/ static files.
-		public.ServeHTTP(w, r)
+		rc, meta, err := store.Get(r.Context(), id)
+		if err != nil {
+			if strings.Contains(err.Error(), "not found") {
+				http.NotFound(w, r)
+				return
+			}
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		defer rc.Close()
+
+		w.Header().Set("Content-Type", meta.ContentType)
+		io.Copy(w, rc)
 	}
 }
 
 func main() {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
+	godotenv.Load() // optional .env file
 
+	port := env("PORT", "8080")
+
+	// Database
+	dsn := env("DB_DSN", "file:stashy.db")
+	driver := driverFromDSN(dsn)
+
+	database, err := db.New(context.Background(), driver, dsn)
+	if err != nil {
+		log.Fatalf("failed to connect to database: %v", err)
+	}
+	defer database.Close(context.Background())
+
+	// Storage
 	store, err := newStorage()
 	if err != nil {
 		log.Fatalf("failed to create storage: %v", err)
 	}
 
-	svc := service.New(store)
+	// Auth
+	sessions := auth.NewSessionManager(envRequired("SESSION_SECRET"))
 
+	hostname := env("HOSTNAME", "http://localhost:"+port)
+
+	oauth := auth.NewOAuthHandler(
+		envRequired("GOOGLE_CLIENT_ID"),
+		envRequired("GOOGLE_CLIENT_SECRET"),
+		hostname+"/auth/google/callback",
+		database,
+		sessions,
+	)
+
+	apiKeys := auth.NewAPIKeyHandler(database, sessions)
+
+	// gRPC/Connect service
+	svc := service.New(store)
 	path, handler := stashyv1alpha1connect.NewStorageServiceHandler(svc)
 
-	services := []*vanguard.Service{
+	transcoder, err := vanguard.NewTranscoder([]*vanguard.Service{
 		vanguard.NewService(path, handler),
-	}
-
-	transcoder, err := vanguard.NewTranscoder(services)
+	})
 	if err != nil {
 		log.Fatalf("failed to create transcoder: %v", err)
 	}
 
+	// Auth middleware for API routes
+	apiAuth := auth.RequireAPIKey(database)
+
+	// Web UI
+	webUI := web.NewHandler(database, sessions)
+
+	// Routes
 	mux := http.NewServeMux()
-	mux.Handle("/v1/", transcoder)
-	mux.Handle(path, transcoder)
-	public := http.FileServer(http.Dir("public"))
-	mux.HandleFunc("/", rootHandler(store, public))
+
+	oauth.RegisterRoutes(mux)
+	apiKeys.RegisterRoutes(mux)
+
+	mux.Handle("/v1/", apiAuth(transcoder))
+	mux.Handle(path, apiAuth(transcoder))
+
+	mux.HandleFunc("/{id}", fileHandler(store))
+
+	mux.Handle("/public/", http.StripPrefix("/public/", http.FileServer(http.Dir("public"))))
+
+	mux.Handle("GET /{$}", webUI)
 
 	addr := ":" + port
 	log.Printf("listening on %s", addr)

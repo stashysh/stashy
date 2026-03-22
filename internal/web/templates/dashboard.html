@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Stashy — Dashboard</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: system-ui, sans-serif; background: #f5f5f5; padding: 2rem; }
+    .container { max-width: 640px; margin: 0 auto; }
+    header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+    header h1 { font-size: 1.25rem; }
+    .user-info { color: #666; font-size: 0.875rem; }
+    .user-info a { color: #e53e3e; text-decoration: none; margin-left: 0.5rem; }
+    .card { background: #fff; border-radius: 8px; padding: 1.5rem; box-shadow: 0 2px 8px rgba(0,0,0,0.1); margin-bottom: 1.5rem; }
+    h2 { font-size: 1rem; margin-bottom: 1rem; }
+    .form-row { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+    input[type="text"] { flex: 1; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; font-size: 0.875rem; }
+    button { padding: 0.5rem 1rem; background: #4285f4; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 0.875rem; }
+    button:hover { background: #3367d6; }
+    .btn-danger { background: #e53e3e; }
+    .btn-danger:hover { background: #c53030; }
+    .new-key { background: #f0fff4; border: 1px solid #c6f6d5; border-radius: 4px; padding: 1rem; margin-bottom: 1rem; word-break: break-all; font-family: monospace; font-size: 0.875rem; }
+    .new-key strong { display: block; margin-bottom: 0.25rem; font-family: system-ui, sans-serif; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.875rem; }
+    th, td { text-align: left; padding: 0.5rem; border-bottom: 1px solid #eee; }
+    th { color: #666; font-weight: 500; }
+    .key-prefix { font-family: monospace; }
+    .empty { color: #999; text-align: center; padding: 1rem; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>Stashy</h1>
+      <div class="user-info">
+        {{.User.Name}} ({{.User.Email}})
+        <a href="/auth/logout">Logout</a>
+      </div>
+    </header>
+
+    <div class="card">
+      <h2>Create API Key</h2>
+      <form method="POST" action="/auth/keys" id="create-form">
+        <div class="form-row">
+          <input type="text" name="label" placeholder="Key label (e.g. production)" required>
+          <button type="submit">Generate</button>
+        </div>
+      </form>
+      <div id="new-key-display" style="display:none;">
+        <div class="new-key">
+          <strong>Save this key — it won't be shown again:</strong>
+          <div style="display:flex;align-items:center;gap:0.5rem;margin-top:0.25rem;">
+            <span id="new-key-value" style="flex:1;"></span>
+            <button onclick="copyKey()" id="copy-btn" style="white-space:nowrap;">Copy</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>API Keys</h2>
+      {{if .Keys}}
+      <table>
+        <thead>
+          <tr><th>Label</th><th>Prefix</th><th>Created</th><th></th></tr>
+        </thead>
+        <tbody>
+          {{range .Keys}}
+          <tr>
+            <td>{{.Label}}</td>
+            <td class="key-prefix">{{.KeyPrefix}}...</td>
+            <td>{{.CreatedAt.Format "2006-01-02"}}</td>
+            <td><button class="btn-danger" onclick="deleteKey('{{.ID}}')">Revoke</button></td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+      {{else}}
+      <p class="empty">No API keys yet. Create one above.</p>
+      {{end}}
+    </div>
+  </div>
+
+  <script>
+    document.getElementById('create-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const body = new FormData(form);
+      const resp = await fetch('/auth/keys', { method: 'POST', body });
+      if (!resp.ok) { alert('Failed to create key'); return; }
+      const data = await resp.json();
+      document.getElementById('new-key-value').textContent = data.key;
+      document.getElementById('new-key-display').style.display = 'block';
+      form.reset();
+      setTimeout(() => location.reload(), 3000);
+    });
+
+    async function copyKey() {
+      const key = document.getElementById('new-key-value').textContent;
+      await navigator.clipboard.writeText(key);
+      const btn = document.getElementById('copy-btn');
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = 'Copy', 2000);
+    }
+
+    async function deleteKey(id) {
+      if (!confirm('Revoke this API key?')) return;
+      const resp = await fetch('/auth/keys/' + id, { method: 'DELETE' });
+      if (resp.ok) location.reload();
+      else alert('Failed to revoke key');
+    }
+  </script>
+</body>
+</html>
