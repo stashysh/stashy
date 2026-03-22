@@ -1,6 +1,6 @@
 # Stashy
 
-Object storage gateway exposing a gRPC/Connect API with REST transcoding.
+Self-hosted file storage service with multi-protocol API.
 
 ## Quick start
 

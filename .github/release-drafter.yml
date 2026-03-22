@@ -1,0 +1,125 @@
+name-template: "v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+
+template: |
+  # What's Changed
+
+  $CHANGES
+
+  ---
+  **Full Changelog**: https://github.com/$OWNER/$REPOSITORY/compare/$PREVIOUS_TAG...v$RESOLVED_VERSION
+
+categories:
+  - title: "💣 Breaking Changes"
+    labels: ["breaking"]
+
+  - title: "🚀 Features"
+    labels: ["feature"]
+
+  - title: "🔧 Fixes"
+    labels: ["fix"]
+
+  - title: "🧹 Refactoring"
+    labels: ["refactor"]
+
+  - title: "📚 Documentation"
+    labels: ["docs"]
+
+  - title: "🧪 Tests"
+    labels: ["test"]
+
+  - title: "⚙️ Maintenance"
+    labels: ["chore"]
+
+  - title: "⬆️ Dependency Updates"
+    labels: ["dependencies"]
+    collapse-after: 10
+
+  - title: "🚨 Security"
+    labels: ["security"]
+    collapse-after: 5
+
+  - title: "Other"
+    labels: ["*"]
+
+exclude-labels:
+  - "skip-changelog"
+
+version-resolver:
+  major:
+    labels: ["breaking"]
+  minor:
+    labels: ["feature"]
+  patch:
+    labels:
+      - "fix"
+      - "refactor"
+      - "docs"
+      - "test"
+      - "chore"
+      - "dependencies"
+      - "security"
+  default: patch
+
+autolabeler:
+  - label: "breaking"
+    title:
+      - "/\\bbreak(ing)?\\b/i"
+      - "/\\bmajor\\b/i"
+      - "/!:/"
+    branch:
+      - "/(break|breaking|major)\\/.+/i"
+
+  - label: "feature"
+    title:
+      - "/\\b(feat|feature)\\b/i"
+      - "/\\b(add|introduce|support|enable)\\b/i"
+    branch:
+      - "/(feat|feature)\\/.+/i"
+
+  - label: "fix"
+    title:
+      - "/\\b(fix|bug|hotfix|patch)\\b/i"
+    branch:
+      - "/(fix|bugfix|hotfix)\\/.+/i"
+
+  - label: "refactor"
+    title:
+      - "/\\brefactor\\b/i"
+    branch:
+      - "/refactor\\/.+/i"
+
+  - label: "docs"
+    title:
+      - "/\\bdocs?\\b/i"
+      - "/readme/i"
+    branch:
+      - "/docs\\/.+/i"
+
+  - label: "test"
+    title:
+      - "/\\btests?\\b/i"
+    branch:
+      - "/tests?\\/.+/i"
+
+  - label: "chore"
+    title:
+      - "/\\bchore\\b/i"
+      - "/\\b(ci|build|tooling)\\b/i"
+    branch:
+      - "/(chore|ci|build)\\/.+/i"
+
+  - label: "dependencies"
+    title:
+      - "/\\bdeps\\b/i"
+      - "/dependenc(y|ies)/i"
+      - "/\\bbump\\b/i"
+      - "/\\bupgrade\\b/i"
+    branch:
+      - "/deps\\/.+/i"
+
+  - label: "security"
+    title:
+      - "/\\bsecurity\\b/i"
+      - "/\\bcve-\\d{4}-\\d+\\b/i"
+      - "/\\bvulnerability\\b/i"
