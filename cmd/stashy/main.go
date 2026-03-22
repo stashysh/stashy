@@ -30,6 +30,8 @@ import (
 	"github.com/stashysh/stashy/internal/web"
 )
 
+var Version = "dev"
+
 func env(key, fallback string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
@@ -100,7 +102,7 @@ func fileHandler(store storage.Storage) http.HandlerFunc {
 	}
 }
 
-const usage = `Usage: stashy <command>
+var usage = "Usage: stashy " + Version + ` <command>
 
 Commands:
   serve     Start the server (default)

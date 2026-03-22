@@ -13,9 +13,9 @@ build:
 generate:
     buf generate
 
-# Run migrations (via app startup)
+# Run database migrations
 migrate:
-    go run ./cmd/stashy --migrate-only
+    go run ./cmd/stashy migrate
 
 # Tidy dependencies
 tidy:
