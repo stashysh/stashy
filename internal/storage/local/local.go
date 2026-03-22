@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/google/uuid"
 	"github.com/stashysh/stashy/internal/storage"
 )
 
@@ -38,7 +37,10 @@ func (s *Storage) metaPath(id string) string {
 }
 
 func (s *Storage) Put(_ context.Context, contentType string, r io.Reader) (*storage.FileMeta, error) {
-	id := uuid.New().String()
+	id, err := storage.NewID()
+	if err != nil {
+		return nil, fmt.Errorf("generating id: %w", err)
+	}
 
 	f, err := os.Create(s.dataPath(id))
 	if err != nil {

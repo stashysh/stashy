@@ -6,7 +6,6 @@ import (
 	"io"
 
 	gcstorage "cloud.google.com/go/storage"
-	"github.com/google/uuid"
 	"github.com/stashysh/stashy/internal/storage"
 )
 
@@ -20,7 +19,10 @@ func New(client *gcstorage.Client, bucketName string) *Storage {
 }
 
 func (s *Storage) Put(ctx context.Context, contentType string, r io.Reader) (*storage.FileMeta, error) {
-	id := uuid.New().String()
+	id, err := storage.NewID()
+	if err != nil {
+		return nil, fmt.Errorf("generating id: %w", err)
+	}
 	obj := s.bucket.Object(id)
 
 	w := obj.NewWriter(ctx)

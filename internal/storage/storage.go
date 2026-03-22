@@ -3,7 +3,14 @@ package storage
 import (
 	"context"
 	"io"
+
+	gonanoid "github.com/matoous/go-nanoid/v2"
 )
+
+// NewID generates a unique file ID. Replace this to use a different ID scheme.
+var NewID = func() (string, error) {
+	return gonanoid.New()
+}
 
 // FileMeta holds metadata about a stored file.
 type FileMeta struct {

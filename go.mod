@@ -9,9 +9,9 @@ require (
 	connectrpc.com/vanguard v0.4.0
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/google/gnostic v0.7.1
-	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.9.1
 	github.com/joho/godotenv v1.5.1
+	github.com/matoous/go-nanoid/v2 v2.1.0
 	github.com/pressly/goose/v3 v3.27.0
 	github.com/tursodatabase/go-libsql v0.0.0-20251219133454-43644db490ff
 	golang.org/x/net v0.52.0
@@ -43,6 +43,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
+	github.com/google/uuid v1.6.0 // indirect
 	github.com/googleapis/enterprise-certificate-proxy v0.3.14 // indirect
 	github.com/googleapis/gax-go/v2 v2.17.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect

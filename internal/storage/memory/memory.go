@@ -7,7 +7,6 @@ import (
 	"io"
 	"sync"
 
-	"github.com/google/uuid"
 	"github.com/stashysh/stashy/internal/storage"
 )
 
@@ -32,7 +31,10 @@ func (s *Storage) Put(_ context.Context, contentType string, r io.Reader) (*stor
 		return nil, fmt.Errorf("reading file data: %w", err)
 	}
 
-	id := uuid.New().String()
+	id, err := storage.NewID()
+	if err != nil {
+		return nil, fmt.Errorf("generating id: %w", err)
+	}
 
 	s.mu.Lock()
 	s.files[id] = &file{data: data, contentType: contentType}

@@ -71,17 +71,17 @@ service StorageService {
 }
 
 message CreateFileRequest {
-  google.api.HttpBody file = 1;
+  google.api.HttpBody file = 1 [(buf.validate.field).required = true];
 }
 
 message CreateFileResponse {
-  string id = 1 [(buf.validate.field).string.uuid = true];
+  string id = 1 [(buf.validate.field).required = true];
 }
 
 message GetFileRequest {
-  string id = 1 [(buf.validate.field).string.uuid = true];
+  string id = 1 [(buf.validate.field).required = true];
 }
 
 message GetFileResponse {
-  google.api.HttpBody file = 1;
+  google.api.HttpBody file = 1 [(buf.validate.field).required = true];
 }
