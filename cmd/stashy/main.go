@@ -15,8 +15,8 @@ import (
 	"golang.org/x/net/http2/h2c"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/joho/godotenv"
 	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/joho/godotenv"
 	_ "github.com/tursodatabase/go-libsql"
 
 	"github.com/stashysh/stashy/gen/stashy/v1alpha1/stashyv1alpha1connect"
@@ -92,6 +92,7 @@ func fileHandler(store storage.Storage) http.HandlerFunc {
 				http.NotFound(w, r)
 				return
 			}
+			log.Printf("fileHandler: %v", err)
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
@@ -185,9 +186,10 @@ func cmdServe() {
 	mux.Handle("/v1/", apiAuth(transcoder))
 	mux.Handle(path, apiAuth(transcoder))
 
-	mux.HandleFunc("/{id}", fileHandler(store))
-	mux.Handle("/public/", http.StripPrefix("/public/", http.FileServer(http.Dir("public"))))
+	mux.Handle("GET /openapi.yaml", http.FileServer(http.Dir("public")))
+
 	mux.Handle("GET /{$}", webUI)
+	mux.HandleFunc("GET /{id}", fileHandler(store))
 
 	addr := ":" + port
 	log.Printf("listening on %s", addr)
