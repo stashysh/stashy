@@ -5,3 +5,5 @@ ARG TARGETPLATFORM
 COPY ${TARGETPLATFORM}/stashy /stashy
 
 ENTRYPOINT ["/stashy"]
+
+CMD ["serve"]

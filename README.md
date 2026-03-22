@@ -10,7 +10,7 @@ export GOOGLE_CLIENT_ID="your-client-id"
 export GOOGLE_CLIENT_SECRET="your-client-secret"
 
 just run
-# or: go run ./cmd/stashy
+# or: go run ./cmd/stashy serve
 ```
 
 Visit `http://localhost:8080` to sign in and generate API keys.
@@ -58,6 +58,19 @@ Driver is auto-detected from the DSN:
 | `mysql://user:pass@tcp(host)/db` | MySQL |
 
 Migrations run automatically on startup via [goose](https://github.com/pressly/goose).
+
+To run migrations independently (e.g. as a Cloud Run job):
+
+```bash
+stashy migrate
+```
+
+## CLI
+
+```
+stashy serve      # start the server (default)
+stashy migrate    # run database migrations and exit
+```
 
 ## Authentication
 

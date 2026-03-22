@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -59,7 +60,6 @@ func newStorage() (storage.Storage, error) {
 	}
 }
 
-// driverFromDSN detects the database driver from the DSN scheme.
 func driverFromDSN(dsn string) string {
 	switch {
 	case strings.HasPrefix(dsn, "postgres://"), strings.HasPrefix(dsn, "postgresql://"):
@@ -69,6 +69,11 @@ func driverFromDSN(dsn string) string {
 	default:
 		return "libsql"
 	}
+}
+
+func openDB() (*db.DB, error) {
+	dsn := env("DB_DSN", "file:stashy.db")
+	return db.New(context.Background(), driverFromDSN(dsn), dsn)
 }
 
 func fileHandler(store storage.Storage) http.HandlerFunc {
@@ -95,30 +100,56 @@ func fileHandler(store storage.Storage) http.HandlerFunc {
 	}
 }
 
-func main() {
-	godotenv.Load() // optional .env file
+const usage = `Usage: stashy <command>
 
+Commands:
+  serve     Start the server (default)
+  migrate   Run database migrations and exit
+`
+
+func main() {
+	godotenv.Load()
+
+	cmd := "serve"
+	if len(os.Args) > 1 {
+		cmd = os.Args[1]
+	}
+
+	switch cmd {
+	case "serve":
+		cmdServe()
+	case "migrate":
+		cmdMigrate()
+	default:
+		fmt.Fprint(os.Stderr, usage)
+		os.Exit(1)
+	}
+}
+
+func cmdMigrate() {
+	database, err := openDB()
+	if err != nil {
+		log.Fatalf("migration failed: %v", err)
+	}
+	database.Close(context.Background())
+	log.Println("migrations complete")
+}
+
+func cmdServe() {
 	port := env("PORT", "8080")
 
-	// Database
-	dsn := env("DB_DSN", "file:stashy.db")
-	driver := driverFromDSN(dsn)
-
-	database, err := db.New(context.Background(), driver, dsn)
+	database, err := openDB()
 	if err != nil {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
 	defer database.Close(context.Background())
 
-	// Storage
 	store, err := newStorage()
 	if err != nil {
 		log.Fatalf("failed to create storage: %v", err)
 	}
 
-	// Auth
 	sessions := auth.NewSessionManager(envRequired("SESSION_SECRET"))
-
 	hostname := env("HOSTNAME", "http://localhost:"+port)
 
 	oauth := auth.NewOAuthHandler(
@@ -131,7 +162,6 @@ func main() {
 
 	apiKeys := auth.NewAPIKeyHandler(database, sessions)
 
-	// gRPC/Connect service
 	svc := service.New(store)
 	path, handler := stashyv1alpha1connect.NewStorageServiceHandler(svc)
 
@@ -142,13 +172,9 @@ func main() {
 		log.Fatalf("failed to create transcoder: %v", err)
 	}
 
-	// Auth middleware for API routes
 	apiAuth := auth.RequireAPIKey(database)
-
-	// Web UI
 	webUI := web.NewHandler(database, sessions)
 
-	// Routes
 	mux := http.NewServeMux()
 
 	oauth.RegisterRoutes(mux)
@@ -158,9 +184,7 @@ func main() {
 	mux.Handle(path, apiAuth(transcoder))
 
 	mux.HandleFunc("/{id}", fileHandler(store))
-
 	mux.Handle("/public/", http.StripPrefix("/public/", http.FileServer(http.Dir("public"))))
-
 	mux.Handle("GET /{$}", webUI)
 
 	addr := ":" + port
