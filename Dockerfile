@@ -3,6 +3,7 @@ FROM gcr.io/distroless/static-debian12:nonroot
 ARG TARGETPLATFORM
 
 COPY ${TARGETPLATFORM}/stashy /stashy
+COPY public/ /public/
 
 ENTRYPOINT ["/stashy"]
 

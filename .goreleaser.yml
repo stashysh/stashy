@@ -19,6 +19,8 @@ dockers_v2:
   - images:
       - ghcr.io/stashysh/stashy
       - stashysh/stashy
+    extra_files:
+      - public/
     tags:
       - "{{ .Tag }}"
       - latest
