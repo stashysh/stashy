@@ -10,7 +10,7 @@ export GOOGLE_CLIENT_ID="your-client-id"
 export GOOGLE_CLIENT_SECRET="your-client-secret"
 
 just run
-# or: go run ./cmd/stashy serve
+# or: go run ./cmd/stashy serve --migrate
 ```
 
 Visit `http://localhost:8080` to sign in and generate API keys.
@@ -45,6 +45,7 @@ docker compose up
 | `SESSION_SECRET` | HMAC key for signing session cookies | required |
 | `GOOGLE_CLIENT_ID` | Google OAuth 2.0 client ID | required |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth 2.0 client secret | required |
+| `ALLOWED_DOMAINS` | Comma-separated list of allowed email domains | — (all allowed) |
 
 ## Database
 
@@ -56,19 +57,20 @@ Driver is auto-detected from the DSN:
 | `postgres://user:pass@host/db` | PostgreSQL |
 | `mysql://user:pass@tcp(host)/db` | MySQL |
 
-Migrations run automatically on startup via [goose](https://github.com/pressly/goose).
-
-To run migrations independently (e.g. as a Cloud Run job):
+Migrations are managed by [goose](https://github.com/pressly/goose). Run them explicitly:
 
 ```bash
 stashy migrate
+# or: stashy serve --migrate
 ```
 
 ## CLI
 
 ```
-stashy serve      # start the server (default)
-stashy migrate    # run database migrations and exit
+stashy serve [--migrate]   # start the server (default), optionally run migrations first
+stashy migrate             # run database migrations and exit
+stashy version             # print version
+stashy help                # print usage
 ```
 
 ## Authentication
@@ -89,7 +91,9 @@ curl -H "Authorization: Bearer <api-key>" \
   --data-binary @photo.png
 ```
 
-Direct file access at `/{uuid}` is public (no auth required).
+Direct file access at `/{id}` is public (no auth required).
+
+Set `ALLOWED_DOMAINS` to restrict login to specific email domains.
 
 ## Protocols
 
