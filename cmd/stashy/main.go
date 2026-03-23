@@ -106,8 +106,8 @@ func fileHandler(store storage.Storage) http.HandlerFunc {
 var usage = "Usage: stashy " + Version + ` <command>
 
 Commands:
-  serve     Start the server (default)
-  migrate   Run database migrations and exit
+  serve [--migrate]   Start the server (default)
+  migrate             Run database migrations and exit
 `
 
 func main() {
@@ -118,9 +118,16 @@ func main() {
 		cmd = os.Args[1]
 	}
 
+	migrate := false
+	for _, arg := range os.Args[1:] {
+		if arg == "--migrate" {
+			migrate = true
+		}
+	}
+
 	switch cmd {
 	case "serve":
-		cmdServe()
+		cmdServe(migrate)
 	case "migrate":
 		cmdMigrate()
 	case "version", "-v", "--version":
@@ -146,7 +153,7 @@ func cmdMigrate() {
 	log.Println("migrations complete")
 }
 
-func cmdServe() {
+func cmdServe(migrate bool) {
 	port := env("PORT", "8080")
 
 	database, err := openDB()
@@ -154,6 +161,12 @@ func cmdServe() {
 		log.Fatalf("failed to connect to database: %v", err)
 	}
 	defer database.Close(context.Background())
+
+	if migrate {
+		if err := database.Migrate(context.Background()); err != nil {
+			log.Fatalf("migration failed: %v", err)
+		}
+	}
 
 	store, err := newStorage()
 	if err != nil {

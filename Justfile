@@ -3,7 +3,7 @@ default:
 
 # Run the server
 run:
-    go run ./cmd/stashy
+    go run ./cmd/stashy serve --migrate
 
 # Build the binary
 build:
