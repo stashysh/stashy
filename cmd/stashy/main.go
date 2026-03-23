@@ -176,12 +176,18 @@ func cmdServe(migrate bool) {
 	sessions := auth.NewSessionManager(envRequired("SESSION_SECRET"))
 	hostname := env("HOSTNAME", "http://localhost:"+port)
 
+	var allowedDomains []string
+	if v := os.Getenv("ALLOWED_DOMAINS"); v != "" {
+		allowedDomains = strings.Split(v, ",")
+	}
+
 	oauth := auth.NewOAuthHandler(
 		envRequired("GOOGLE_CLIENT_ID"),
 		envRequired("GOOGLE_CLIENT_SECRET"),
 		hostname+"/auth/google/callback",
 		database,
 		sessions,
+		allowedDomains,
 	)
 
 	apiKeys := auth.NewAPIKeyHandler(database, sessions)

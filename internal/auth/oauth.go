@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strings"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -15,12 +16,20 @@ import (
 )
 
 type OAuthHandler struct {
-	config   *oauth2.Config
-	db       *db.DB
-	sessions *SessionManager
+	config         *oauth2.Config
+	db             *db.DB
+	sessions       *SessionManager
+	allowedDomains map[string]bool
 }
 
-func NewOAuthHandler(clientID, clientSecret, redirectURL string, database *db.DB, sessions *SessionManager) *OAuthHandler {
+func NewOAuthHandler(clientID, clientSecret, redirectURL string, database *db.DB, sessions *SessionManager, allowedDomains []string) *OAuthHandler {
+	domains := make(map[string]bool, len(allowedDomains))
+	for _, d := range allowedDomains {
+		d = strings.TrimSpace(d)
+		if d != "" {
+			domains[strings.ToLower(d)] = true
+		}
+	}
 	return &OAuthHandler{
 		config: &oauth2.Config{
 			ClientID:     clientID,
@@ -29,8 +38,9 @@ func NewOAuthHandler(clientID, clientSecret, redirectURL string, database *db.DB
 			Scopes:       []string{"openid", "email", "profile"},
 			Endpoint:     google.Endpoint,
 		},
-		db:       database,
-		sessions: sessions,
+		db:             database,
+		sessions:       sessions,
+		allowedDomains: domains,
 	}
 }
 
@@ -87,6 +97,11 @@ func (h *OAuthHandler) handleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.isAllowedEmail(userInfo.Email) {
+		http.Error(w, "access denied", http.StatusForbidden)
+		return
+	}
+
 	user, err := h.db.UpsertUser(r.Context(), userInfo.Sub, userInfo.Email, userInfo.Name)
 	if err != nil {
 		log.Printf("upsert user error: %v", err)
@@ -122,6 +137,17 @@ func fetchGoogleUserInfo(ctx context.Context, config *oauth2.Config, token *oaut
 		return nil, err
 	}
 	return &info, nil
+}
+
+func (h *OAuthHandler) isAllowedEmail(email string) bool {
+	if len(h.allowedDomains) == 0 {
+		return true
+	}
+	parts := strings.SplitN(email, "@", 2)
+	if len(parts) != 2 {
+		return false
+	}
+	return h.allowedDomains[strings.ToLower(parts[1])]
 }
 
 func generateState() string {
