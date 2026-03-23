@@ -13,7 +13,7 @@ service StorageService {
   // Upload a file to storage.
   rpc CreateFile(stream CreateFileRequest) returns (CreateFileResponse) {
     option (google.api.http) = {
-      post: "/v1/files"
+      post: "/api/v1/files"
       body: "file"
     };
     option (gnostic.openapi.v3.operation) = {
@@ -40,7 +40,7 @@ service StorageService {
   // Download a file from storage.
   rpc GetFile(GetFileRequest) returns (stream GetFileResponse) {
     option (google.api.http) = {
-      get: "/v1/files/{id}"
+      get: "/api/v1/files/{id}"
       response_body: "file"
     };
     option (gnostic.openapi.v3.operation) = {

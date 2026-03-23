@@ -204,7 +204,7 @@ func cmdServe(migrate bool) {
 	oauth.RegisterRoutes(mux)
 	apiKeys.RegisterRoutes(mux)
 
-	mux.Handle("/v1/", apiAuth(transcoder))
+	mux.Handle("/api/", apiAuth(transcoder))
 	mux.Handle(path, apiAuth(transcoder))
 
 	publicFS := http.FileServer(http.Dir("public"))

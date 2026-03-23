@@ -80,11 +80,11 @@ stashy migrate    # run database migrations and exit
 
 ### API (Bearer token)
 
-All `/v1/*` API endpoints require a Bearer token:
+All `/api/v1/*` API endpoints require a Bearer token:
 
 ```bash
 curl -H "Authorization: Bearer <api-key>" \
-  -X POST http://localhost:8080/v1/files \
+  -X POST http://localhost:8080/api/v1/files \
   -H "Content-Type: image/png" \
   --data-binary @photo.png
 ```
@@ -108,7 +108,7 @@ A single endpoint serves all protocols via [vanguard-go](https://github.com/conn
 
 ```bash
 curl -H "Authorization: Bearer <api-key>" \
-  -X POST http://localhost:8080/v1/files \
+  -X POST http://localhost:8080/api/v1/files \
   -H "Content-Type: image/png" \
   --data-binary @photo.png
 ```
@@ -117,7 +117,7 @@ curl -H "Authorization: Bearer <api-key>" \
 
 ```bash
 curl -H "Authorization: Bearer <api-key>" \
-  http://localhost:8080/v1/files/{id}
+  http://localhost:8080/api/v1/files/{id}
 ```
 
 ### Direct file access (public)
