@@ -1,0 +1,12 @@
+/public/openapi.yaml
+/storage/
+/gen/
+
+/stashy
+
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+.env

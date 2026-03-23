@@ -1,0 +1,21 @@
+name: Setup
+description: Setup Go and Buf, generate proto code
+
+inputs:
+  go-version:
+    description: Go version
+    default: "1.26"
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v6
+      with:
+        go-version: ${{ inputs.go-version }}
+
+    - uses: bufbuild/buf-action@v1
+      with:
+        setup_only: true
+
+    - run: buf generate
+      shell: bash

@@ -1,0 +1,40 @@
+version: 2
+builds:
+  - main: ./cmd/stashy
+    binary: stashy
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.Version={{ .Version }}
+    goarch:
+      - amd64
+      - arm64
+    goos:
+      - linux
+      - darwin
+      - windows
+dockers_v2:
+  - images:
+      - ghcr.io/stashysh/stashy
+      - stashysh/stashy
+    tags:
+      - "{{ .Tag }}"
+      - latest
+    labels:
+      "org.opencontainers.image.created": "{{ .Date }}"
+      "org.opencontainers.image.name": "{{ .ProjectName }}"
+      "org.opencontainers.image.revision": "{{ .FullCommit }}"
+      "org.opencontainers.image.version": "{{ .Version }}"
+      "org.opencontainers.image.source": "{{ .GitURL }}"
+brews:
+  - repository:
+      owner: stashysh
+      name: homebrew-tap
+      token: "{{ .Env.TAP_GITHUB_TOKEN }}"
+    description: "Self-hosted file storage service"
+    homepage: "https://github.com/stashysh/stashy"
+    license: "Apache-2.0"
+changelog:
+  disable: true

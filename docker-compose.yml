@@ -1,0 +1,20 @@
+services:
+  stashy:
+    build:
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - DB_DSN=file:/app/data/stashy.db
+      - STORAGE_BACKEND=local
+      - LOCAL_STORAGE_DIR=/app/data/storage
+      - SESSION_SECRET=${SESSION_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - HOSTNAME=${HOSTNAME:-http://localhost:8080}
+    volumes:
+      - stashy-data:/app/data
+
+volumes:
+  stashy-data:
