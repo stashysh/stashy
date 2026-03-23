@@ -18,7 +18,7 @@ func New(client *gcstorage.Client, bucketName string) *Storage {
 	return &Storage{bucket: client.Bucket(bucketName)}
 }
 
-func (s *Storage) Put(ctx context.Context, contentType string, r io.Reader) (*storage.FileMeta, error) {
+func (s *Storage) Put(ctx context.Context, owner, contentType string, r io.Reader) (*storage.FileMeta, error) {
 	id, err := storage.NewID()
 	if err != nil {
 		return nil, fmt.Errorf("generating id: %w", err)
@@ -27,6 +27,7 @@ func (s *Storage) Put(ctx context.Context, contentType string, r io.Reader) (*st
 
 	w := obj.NewWriter(ctx)
 	w.ContentType = contentType
+	w.Metadata = map[string]string{"owner": owner}
 
 	n, err := io.Copy(w, r)
 	if err != nil {
@@ -40,6 +41,7 @@ func (s *Storage) Put(ctx context.Context, contentType string, r io.Reader) (*st
 
 	return &storage.FileMeta{
 		ID:          id,
+		Owner:       owner,
 		ContentType: contentType,
 		Size:        n,
 	}, nil
@@ -63,6 +65,7 @@ func (s *Storage) Get(ctx context.Context, id string) (io.ReadCloser, *storage.F
 
 	return r, &storage.FileMeta{
 		ID:          id,
+		Owner:       attrs.Metadata["owner"],
 		ContentType: attrs.ContentType,
 		Size:        attrs.Size,
 	}, nil

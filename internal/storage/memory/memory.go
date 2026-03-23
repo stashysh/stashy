@@ -12,6 +12,7 @@ import (
 
 type file struct {
 	data        []byte
+	owner       string
 	contentType string
 }
 
@@ -25,7 +26,7 @@ func New() *Storage {
 	return &Storage{files: make(map[string]*file)}
 }
 
-func (s *Storage) Put(_ context.Context, contentType string, r io.Reader) (*storage.FileMeta, error) {
+func (s *Storage) Put(_ context.Context, owner, contentType string, r io.Reader) (*storage.FileMeta, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return nil, fmt.Errorf("reading file data: %w", err)
@@ -37,11 +38,12 @@ func (s *Storage) Put(_ context.Context, contentType string, r io.Reader) (*stor
 	}
 
 	s.mu.Lock()
-	s.files[id] = &file{data: data, contentType: contentType}
+	s.files[id] = &file{data: data, owner: owner, contentType: contentType}
 	s.mu.Unlock()
 
 	return &storage.FileMeta{
 		ID:          id,
+		Owner:       owner,
 		ContentType: contentType,
 		Size:        int64(len(data)),
 	}, nil
@@ -58,6 +60,7 @@ func (s *Storage) Get(_ context.Context, id string) (io.ReadCloser, *storage.Fil
 
 	return io.NopCloser(bytes.NewReader(f.data)), &storage.FileMeta{
 		ID:          id,
+		Owner:       f.owner,
 		ContentType: f.contentType,
 		Size:        int64(len(f.data)),
 	}, nil

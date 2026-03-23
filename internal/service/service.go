@@ -10,6 +10,7 @@ import (
 
 	stashyv1alpha1 "github.com/stashysh/stashy/gen/stashy/v1alpha1"
 	"github.com/stashysh/stashy/gen/stashy/v1alpha1/stashyv1alpha1connect"
+	"github.com/stashysh/stashy/internal/auth"
 	"github.com/stashysh/stashy/internal/storage"
 )
 
@@ -29,9 +30,29 @@ func (s *StorageService) CreateFile(
 	ctx context.Context,
 	stream *connect.ClientStream[stashyv1alpha1.CreateFileRequest],
 ) (*connect.Response[stashyv1alpha1.CreateFileResponse], error) {
+	owner, _ := auth.UserIDFromContext(ctx)
+
+	// Read first chunk to determine content type before starting storage write.
+	var contentType string
+	var firstData []byte
+	for stream.Receive() {
+		msg := stream.Msg()
+		if msg.File == nil {
+			continue
+		}
+		contentType = msg.File.ContentType
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		firstData = msg.File.Data
+		break
+	}
+	if err := stream.Err(); err != nil {
+		return nil, err
+	}
+
 	pr, pw := io.Pipe()
 
-	var contentType string
 	var putResult struct {
 		meta *storage.FileMeta
 		err  error
@@ -40,19 +61,21 @@ func (s *StorageService) CreateFile(
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		putResult.meta, putResult.err = s.store.Put(ctx, contentType, pr)
+		putResult.meta, putResult.err = s.store.Put(ctx, owner, contentType, pr)
 	}()
+
+	if len(firstData) > 0 {
+		if _, err := pw.Write(firstData); err != nil {
+			pw.Close()
+			<-done
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+	}
 
 	for stream.Receive() {
 		msg := stream.Msg()
 		if msg.File == nil {
 			continue
-		}
-		if contentType == "" {
-			contentType = msg.File.ContentType
-			if contentType == "" {
-				contentType = "application/octet-stream"
-			}
 		}
 		if _, err := pw.Write(msg.File.Data); err != nil {
 			pw.Close()

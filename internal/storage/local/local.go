@@ -12,6 +12,7 @@ import (
 )
 
 type meta struct {
+	Owner       string `json:"owner"`
 	ContentType string `json:"content_type"`
 	Size        int64  `json:"size"`
 }
@@ -36,7 +37,7 @@ func (s *Storage) metaPath(id string) string {
 	return filepath.Join(s.dir, id+".meta")
 }
 
-func (s *Storage) Put(_ context.Context, contentType string, r io.Reader) (*storage.FileMeta, error) {
+func (s *Storage) Put(_ context.Context, owner, contentType string, r io.Reader) (*storage.FileMeta, error) {
 	id, err := storage.NewID()
 	if err != nil {
 		return nil, fmt.Errorf("generating id: %w", err)
@@ -54,7 +55,7 @@ func (s *Storage) Put(_ context.Context, contentType string, r io.Reader) (*stor
 		return nil, fmt.Errorf("writing file: %w", err)
 	}
 
-	m := meta{ContentType: contentType, Size: n}
+	m := meta{Owner: owner, ContentType: contentType, Size: n}
 	mf, err := os.Create(s.metaPath(id))
 	if err != nil {
 		os.Remove(s.dataPath(id))
@@ -70,6 +71,7 @@ func (s *Storage) Put(_ context.Context, contentType string, r io.Reader) (*stor
 
 	return &storage.FileMeta{
 		ID:          id,
+		Owner:       owner,
 		ContentType: contentType,
 		Size:        n,
 	}, nil
@@ -97,6 +99,7 @@ func (s *Storage) Get(_ context.Context, id string) (io.ReadCloser, *storage.Fil
 
 	return f, &storage.FileMeta{
 		ID:          id,
+		Owner:       m.Owner,
 		ContentType: m.ContentType,
 		Size:        m.Size,
 	}, nil
