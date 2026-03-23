@@ -54,20 +54,24 @@ func New(ctx context.Context, driver, dsn string) (*DB, error) {
 	}
 
 	dialect := driver
-	if strings.Contains(driver, "libsql") || strings.Contains(driver, "sqlite") {
+	if strings.Contains(driver, "sqlite") {
 		dialect = "sqlite3"
 	}
 
-	migrations.Dialect = dialect
-
-	if err := goose.SetDialect(dialect); err != nil {
-		return nil, fmt.Errorf("setting goose dialect: %w", err)
-	}
-	if err := goose.UpContext(ctx, sqlDB, "."); err != nil {
-		return nil, fmt.Errorf("running migrations: %w", err)
-	}
-
 	return &DB{sql: sqlDB, dialect: dialect}, nil
+}
+
+// Migrate runs all pending database migrations.
+func (d *DB) Migrate(ctx context.Context) error {
+	migrations.Dialect = d.dialect
+
+	if err := goose.SetDialect(d.dialect); err != nil {
+		return fmt.Errorf("setting goose dialect: %w", err)
+	}
+	if err := goose.UpContext(ctx, d.sql, "."); err != nil {
+		return fmt.Errorf("running migrations: %w", err)
+	}
+	return nil
 }
 
 func (d *DB) Close(_ context.Context) error {

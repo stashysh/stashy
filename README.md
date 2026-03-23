@@ -53,7 +53,6 @@ Driver is auto-detected from the DSN:
 | DSN | Database |
 |---|---|
 | `file:stashy.db` | SQLite (default) |
-| `file:stashy.db?authToken=T&syncUrl=libsql://db.turso.io` | Turso |
 | `postgres://user:pass@host/db` | PostgreSQL |
 | `mysql://user:pass@tcp(host)/db` | MySQL |
 

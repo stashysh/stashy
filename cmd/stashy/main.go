@@ -17,7 +17,7 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/joho/godotenv"
-	_ "github.com/tursodatabase/go-libsql"
+	_ "modernc.org/sqlite"
 
 	"github.com/stashysh/stashy/gen/stashy/v1alpha1/stashyv1alpha1connect"
 	"github.com/stashysh/stashy/internal/auth"
@@ -69,7 +69,7 @@ func driverFromDSN(dsn string) string {
 	case strings.HasPrefix(dsn, "mysql://"):
 		return "mysql"
 	default:
-		return "libsql"
+		return "sqlite"
 	}
 }
 
@@ -123,6 +123,10 @@ func main() {
 		cmdServe()
 	case "migrate":
 		cmdMigrate()
+	case "version", "-v", "--version":
+		fmt.Println("stashy " + Version)
+	case "help", "-h", "--help":
+		fmt.Print(usage)
 	default:
 		fmt.Fprint(os.Stderr, usage)
 		os.Exit(1)
@@ -132,9 +136,13 @@ func main() {
 func cmdMigrate() {
 	database, err := openDB()
 	if err != nil {
+		log.Fatalf("failed to connect to database: %v", err)
+	}
+	defer database.Close(context.Background())
+
+	if err := database.Migrate(context.Background()); err != nil {
 		log.Fatalf("migration failed: %v", err)
 	}
-	database.Close(context.Background())
 	log.Println("migrations complete")
 }
 
@@ -186,7 +194,14 @@ func cmdServe() {
 	mux.Handle("/v1/", apiAuth(transcoder))
 	mux.Handle(path, apiAuth(transcoder))
 
-	mux.Handle("GET /openapi.yaml", http.FileServer(http.Dir("public")))
+	publicFS := http.FileServer(http.Dir("public"))
+	if entries, err := os.ReadDir("public"); err == nil {
+		for _, e := range entries {
+			if !e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+				mux.Handle("GET /"+e.Name(), publicFS)
+			}
+		}
+	}
 
 	mux.Handle("GET /{$}", webUI)
 	mux.HandleFunc("GET /{id}", fileHandler(store))
