@@ -68,5 +68,35 @@ func (s *Storage) Get(ctx context.Context, id string) (io.ReadCloser, *storage.F
 		Owner:       attrs.Metadata["owner"],
 		ContentType: attrs.ContentType,
 		Size:        attrs.Size,
+		Public:      attrs.Metadata["public"] == "true",
 	}, nil
+}
+
+func (s *Storage) SetPublic(ctx context.Context, id string, public bool) error {
+	obj := s.bucket.Object(id)
+
+	attrs, err := obj.Attrs(ctx)
+	if err != nil {
+		if err == gcstorage.ErrObjectNotExist {
+			return fmt.Errorf("file not found: %s", id)
+		}
+		return fmt.Errorf("getting object attrs: %w", err)
+	}
+
+	meta := attrs.Metadata
+	if meta == nil {
+		meta = make(map[string]string)
+	}
+
+	if public {
+		meta["public"] = "true"
+	} else {
+		delete(meta, "public")
+	}
+
+	_, err = obj.Update(ctx, gcstorage.ObjectAttrsToUpdate{Metadata: meta})
+	if err != nil {
+		return fmt.Errorf("updating object metadata: %w", err)
+	}
+	return nil
 }

@@ -1,4 +1,7 @@
 version: 2
+before:
+  hooks:
+    - buf generate
 builds:
   - main: ./cmd/stashy
     binary: stashy

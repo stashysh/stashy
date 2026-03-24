@@ -91,7 +91,7 @@ curl -H "Authorization: Bearer <api-key>" \
   --data-binary @photo.png
 ```
 
-Direct file access at `/{id}` is public (no auth required).
+Files are private by default. Use `POST /api/v1/files/{id}/publish` to make a file publicly accessible at `/{id}`. Logged-in users can access any file via direct link.
 
 Set `ALLOWED_DOMAINS` to restrict login to specific email domains.
 
@@ -124,12 +124,27 @@ curl -H "Authorization: Bearer <api-key>" \
   http://localhost:8080/api/v1/files/{id}
 ```
 
-### Direct file access (public)
+### Publish a file
+
+```bash
+curl -H "Authorization: Bearer <api-key>" \
+  -X POST http://localhost:8080/api/v1/files/{id}/publish
+```
+
+### Unpublish a file
+
+```bash
+curl -H "Authorization: Bearer <api-key>" \
+  -X POST http://localhost:8080/api/v1/files/{id}/unpublish
+```
+
+### Direct file access
 
 ```bash
 curl http://localhost:8080/{id}
 ```
 
+Published files are accessible to anyone. Private files require a login session.
 Ideal for CDN or subdomain mapping (e.g., `cdn.example.com/{id}`).
 
 ## Storage backends
