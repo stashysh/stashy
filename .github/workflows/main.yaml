@@ -9,6 +9,8 @@ on:
 permissions:
   contents: read
   pull-requests: write
+  pages: write
+  id-token: write
 
 jobs:
   build:
@@ -22,3 +24,18 @@ jobs:
       - run: buf generate
       - run: go build ./...
       - run: go vet ./...
+      - uses: actions/upload-pages-artifact@v4
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        with:
+          path: public/
+
+  pages:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4
