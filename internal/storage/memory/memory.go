@@ -14,6 +14,7 @@ type file struct {
 	data        []byte
 	owner       string
 	contentType string
+	public      bool
 }
 
 // Storage is an in-memory storage backend. Useful for development and testing.
@@ -63,5 +64,18 @@ func (s *Storage) Get(_ context.Context, id string) (io.ReadCloser, *storage.Fil
 		Owner:       f.owner,
 		ContentType: f.contentType,
 		Size:        int64(len(f.data)),
+		Public:      f.public,
 	}, nil
+}
+
+func (s *Storage) SetPublic(_ context.Context, id string, public bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	f, ok := s.files[id]
+	if !ok {
+		return fmt.Errorf("file not found: %s", id)
+	}
+	f.public = public
+	return nil
 }

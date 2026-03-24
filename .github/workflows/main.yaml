@@ -12,5 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
+      - uses: bufbuild/buf-action@v1
+      - run: buf generate
       - run: go build ./...
       - run: go vet ./...

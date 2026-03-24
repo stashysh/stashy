@@ -15,6 +15,7 @@ type meta struct {
 	Owner       string `json:"owner"`
 	ContentType string `json:"content_type"`
 	Size        int64  `json:"size"`
+	Public      bool   `json:"public"`
 }
 
 // Storage stores files on the local filesystem.
@@ -102,5 +103,33 @@ func (s *Storage) Get(_ context.Context, id string) (io.ReadCloser, *storage.Fil
 		Owner:       m.Owner,
 		ContentType: m.ContentType,
 		Size:        m.Size,
+		Public:      m.Public,
 	}, nil
+}
+
+func (s *Storage) SetPublic(_ context.Context, id string, public bool) error {
+	mf, err := os.Open(s.metaPath(id))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("file not found: %s", id)
+		}
+		return fmt.Errorf("reading meta: %w", err)
+	}
+
+	var m meta
+	if err := json.NewDecoder(mf).Decode(&m); err != nil {
+		mf.Close()
+		return fmt.Errorf("decoding meta: %w", err)
+	}
+	mf.Close()
+
+	m.Public = public
+
+	wf, err := os.Create(s.metaPath(id))
+	if err != nil {
+		return fmt.Errorf("writing meta: %w", err)
+	}
+	defer wf.Close()
+
+	return json.NewEncoder(wf).Encode(&m)
 }

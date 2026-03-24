@@ -17,13 +17,14 @@ import (
 const chunkSize = 64 * 1024 // 64KB
 
 type StorageService struct {
-	store storage.Storage
+	store    storage.Storage
+	hostname string
 }
 
 var _ stashyv1alpha1connect.StorageServiceHandler = (*StorageService)(nil)
 
-func New(store storage.Storage) *StorageService {
-	return &StorageService{store: store}
+func New(store storage.Storage, hostname string) *StorageService {
+	return &StorageService{store: store, hostname: strings.TrimRight(hostname, "/")}
 }
 
 func (s *StorageService) CreateFile(
@@ -97,8 +98,35 @@ func (s *StorageService) CreateFile(
 	}
 
 	return connect.NewResponse(&stashyv1alpha1.CreateFileResponse{
-		Id: putResult.meta.ID,
+		Id:  putResult.meta.ID,
+		Url: s.hostname + "/" + putResult.meta.ID,
 	}), nil
+}
+
+func (s *StorageService) PublishFile(
+	ctx context.Context,
+	req *connect.Request[stashyv1alpha1.PublishFileRequest],
+) (*connect.Response[stashyv1alpha1.PublishFileResponse], error) {
+	if err := s.store.SetPublic(ctx, req.Msg.Id, true); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&stashyv1alpha1.PublishFileResponse{}), nil
+}
+
+func (s *StorageService) UnpublishFile(
+	ctx context.Context,
+	req *connect.Request[stashyv1alpha1.UnpublishFileRequest],
+) (*connect.Response[stashyv1alpha1.UnpublishFileResponse], error) {
+	if err := s.store.SetPublic(ctx, req.Msg.Id, false); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&stashyv1alpha1.UnpublishFileResponse{}), nil
 }
 
 func (s *StorageService) GetFile(

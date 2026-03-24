@@ -78,7 +78,7 @@ func openDB() (*db.DB, error) {
 	return db.New(context.Background(), driverFromDSN(dsn), dsn)
 }
 
-func fileHandler(store storage.Storage) http.HandlerFunc {
+func fileHandler(store storage.Storage, sessions *auth.SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if id == "" {
@@ -97,6 +97,13 @@ func fileHandler(store storage.Storage) http.HandlerFunc {
 			return
 		}
 		defer rc.Close()
+
+		if !meta.Public {
+			if _, ok := sessions.GetUserID(r); !ok {
+				http.NotFound(w, r)
+				return
+			}
+		}
 
 		w.Header().Set("Content-Type", meta.ContentType)
 		io.Copy(w, rc)
@@ -192,7 +199,7 @@ func cmdServe(migrate bool) {
 
 	apiKeys := auth.NewAPIKeyHandler(database, sessions)
 
-	svc := service.New(store)
+	svc := service.New(store, hostname)
 	path, handler := stashyv1alpha1connect.NewStorageServiceHandler(svc)
 
 	transcoder, err := vanguard.NewTranscoder([]*vanguard.Service{
@@ -223,7 +230,7 @@ func cmdServe(migrate bool) {
 	}
 
 	mux.Handle("GET /{$}", webUI)
-	mux.HandleFunc("GET /{id}", fileHandler(store))
+	mux.HandleFunc("GET /{id}", fileHandler(store, sessions))
 
 	addr := ":" + port
 	log.Printf("listening on %s", addr)

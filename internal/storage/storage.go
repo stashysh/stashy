@@ -18,6 +18,7 @@ type FileMeta struct {
 	Owner       string
 	ContentType string
 	Size        int64
+	Public      bool
 }
 
 // Storage is the abstraction over file storage backends (memory, S3, GCS, etc.).
@@ -27,4 +28,7 @@ type Storage interface {
 
 	// Get retrieves a file by ID. The caller must close the returned ReadCloser.
 	Get(ctx context.Context, id string) (io.ReadCloser, *FileMeta, error)
+
+	// SetPublic sets the public visibility of a file.
+	SetPublic(ctx context.Context, id string, public bool) error
 }

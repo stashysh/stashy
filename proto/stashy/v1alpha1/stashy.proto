@@ -2,12 +2,12 @@ syntax = "proto3";
 
 package stashy.v1alpha1;
 
-option go_package = "github.com/stashysh/stashy/gen/stashy/v1alpha1;stashyv1alpha1";
-
-import "google/api/annotations.proto";
-import "google/api/httpbody.proto";
 import "buf/validate/validate.proto";
 import "gnostic/openapi/v3/annotations.proto";
+import "google/api/annotations.proto";
+import "google/api/httpbody.proto";
+
+option go_package = "github.com/stashysh/stashy/gen/stashy/v1alpha1;stashyv1alpha1";
 
 service StorageService {
   // Upload a file to storage.
@@ -69,6 +69,16 @@ service StorageService {
       }
     };
   }
+
+  // Make a file publicly accessible.
+  rpc PublishFile(PublishFileRequest) returns (PublishFileResponse) {
+    option (google.api.http) = {post: "/api/v1/files/{id}/publish"};
+  }
+
+  // Remove public access from a file.
+  rpc UnpublishFile(UnpublishFileRequest) returns (UnpublishFileResponse) {
+    option (google.api.http) = {post: "/api/v1/files/{id}/unpublish"};
+  }
 }
 
 message CreateFileRequest {
@@ -77,6 +87,10 @@ message CreateFileRequest {
 
 message CreateFileResponse {
   string id = 1 [(buf.validate.field).required = true];
+  string url = 2 [(buf.validate.field) = {
+    required: true
+    string: {uri: true}
+  }];
 }
 
 message GetFileRequest {
@@ -86,3 +100,15 @@ message GetFileRequest {
 message GetFileResponse {
   google.api.HttpBody file = 1 [(buf.validate.field).required = true];
 }
+
+message PublishFileRequest {
+  string id = 1 [(buf.validate.field).required = true];
+}
+
+message PublishFileResponse {}
+
+message UnpublishFileRequest {
+  string id = 1 [(buf.validate.field).required = true];
+}
+
+message UnpublishFileResponse {}

@@ -1,9 +1,8 @@
 syntax = "proto3";
 
-option go_package = "github.com/stashysh/stashy/gen;stashy";
-
 import "gnostic/openapi/v3/annotations.proto";
 
+option go_package = "github.com/stashysh/stashy/gen;stashy";
 option (gnostic.openapi.v3.document) = {
   info: {
     title: "Stashy API"
