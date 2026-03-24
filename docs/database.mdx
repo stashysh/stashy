@@ -1,0 +1,51 @@
+---
+title: Database
+description: SQLite, PostgreSQL, and MySQL support
+---
+
+Stashy auto-detects the database driver from the `DB_DSN` connection string.
+
+## Supported Databases
+
+| DSN prefix | Database |
+|---|---|
+| `file:stashy.db` | SQLite (default) |
+| `postgres://user:pass@host/db` | PostgreSQL |
+| `mysql://user:pass@tcp(host)/db` | MySQL |
+
+## SQLite (Default)
+
+Zero-config — just works out of the box:
+
+```bash
+DB_DSN=file:stashy.db  # default
+```
+
+Good for single-instance deployments. The file is created automatically.
+
+## PostgreSQL
+
+```bash
+DB_DSN=postgres://stashy:secret@localhost:5432/stashy?sslmode=disable
+```
+
+Recommended for production multi-instance setups.
+
+## MySQL
+
+```bash
+DB_DSN=mysql://stashy:secret@tcp(localhost:3306)/stashy
+```
+
+## Migrations
+
+Migrations are managed by [goose](https://github.com/pressly/goose). Run them with:
+
+```bash
+stashy migrate              # run migrations and exit
+stashy serve --migrate      # run migrations then start server
+```
+
+<Warning>
+  Always run migrations before starting a new version of Stashy.
+</Warning>

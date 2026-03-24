@@ -1,0 +1,35 @@
+---
+title: File Access
+description: File visibility, direct links, and CDN usage
+---
+
+## Visibility
+
+Files uploaded to Stashy are **private by default**. Access depends on visibility:
+
+| Visibility | `/{id}` access |
+|---|---|
+| **Private** (default) | Logged-in users only |
+| **Published** | Anyone with the link |
+
+Use the [Publish](/api-reference/files/publish) and [Unpublish](/api-reference/files/unpublish) API endpoints to control visibility.
+
+## Direct Links
+
+Every file gets a direct URL at `/{id}`:
+
+```
+https://stashy.example.com/V1StGXR8_Z5jdHi6B-myT
+```
+
+The URL is returned in the `url` field when you [upload a file](/api-reference/files/upload). The response includes the original `Content-Type` header, so browsers render images, PDFs, etc. natively.
+
+## CDN Usage
+
+Published files are ideal for CDN or subdomain mapping:
+
+```
+https://cdn.example.com/V1StGXR8_Z5jdHi6B-myT
+```
+
+Point your CDN or reverse proxy at Stashy's `/{id}` path. No auth headers needed for published files — ideal for edge caching.

@@ -1,0 +1,50 @@
+---
+title: Introduction
+description: Self-hosted file storage with a multi-protocol API
+---
+
+# What is Stashy?
+
+Stashy is a self-hosted file storage service with a multi-protocol API. Upload files, share when ready — that's it.
+
+## Key Features
+
+<CardGroup cols={2}>
+  <Card title="Multi-Protocol" icon="arrows-split-up-and-left">
+    One port serves REST, gRPC, Connect, and gRPC-Web.
+  </Card>
+  <Card title="Pluggable Storage" icon="hard-drive">
+    Memory, local disk, or Google Cloud Storage.
+  </Card>
+  <Card title="Flexible Database" icon="database">
+    SQLite out of the box. Postgres and MySQL when you need them.
+  </Card>
+  <Card title="Single Binary" icon="cube">
+    One Go binary, zero external dependencies.
+  </Card>
+</CardGroup>
+
+## How It Works
+
+<Steps>
+  <Step title="Sign in and get an API key">
+    Visit the dashboard (`/`), sign in with Google, and generate an API key.
+  </Step>
+  <Step title="Upload a file">
+    `POST /api/v1/files` with your Bearer token. You get back an `id` and a direct `url`. The file is immediately accessible to logged-in users.
+  </Step>
+  <Step title="Make it public">
+    `POST /api/v1/files/{id}/publish` to share with anyone — no auth required.
+  </Step>
+</Steps>
+
+## Quick Links
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get running in under 5 minutes
+  </Card>
+  <Card title="API Reference" icon="code" href="/api-reference/overview">
+    Upload and download files
+  </Card>
+</CardGroup>

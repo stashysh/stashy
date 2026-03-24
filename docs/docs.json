@@ -1,0 +1,85 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Stashy.sh",
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#0D9373",
+    "light": "#07C983",
+    "dark": "#0D9373"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/stashysh/stashy"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Get Started",
+      "href": "/quickstart"
+    }
+  },
+  "navigation": {
+    "anchors": [
+      {
+        "anchor": "GitHub",
+        "icon": "github",
+        "href": "https://github.com/stashysh/stashy"
+      }
+    ],
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": ["introduction", "quickstart", "configuration", "file-access"]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": ["authentication", "storage-backends", "database", "protocols"]
+          },
+          {
+            "group": "Operations",
+            "pages": ["deployment", "cli"]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "API Reference",
+            "pages": [
+              "api-reference/overview"
+            ]
+          },
+          {
+            "group": "Files",
+            "pages": [
+              "api-reference/files/upload",
+              "api-reference/files/download",
+              "api-reference/files/publish",
+              "api-reference/files/unpublish"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/stashysh/stashy"
+    }
+  },
+  "api": {
+    "openapi": "https://spec.stashy.sh/openapi.yaml"
+  },
+  "integrations": {
+    "ga4": {
+      "measurementId": "G-21RJD9FXK1"
+    }
+  }
+}

@@ -1,0 +1,38 @@
+---
+title: Configuration
+description: Environment variables and configuration options
+---
+
+Stashy is configured entirely through environment variables. Create a `.env` file or export them directly.
+
+## Environment Variables
+
+| Variable | Description | Default |
+|---|---|---|
+| `PORT` | Server listen port | `8080` |
+| `HOSTNAME` | Public base URL (used for OAuth redirect) | `http://localhost:$PORT` |
+| `DB_DSN` | Database connection string | `file:stashy.db` |
+| `STORAGE_BACKEND` | `memory`, `local`, or `gcs` | `memory` |
+| `LOCAL_STORAGE_DIR` | Directory for local file storage | `./storage` |
+| `GCS_BUCKET` | GCS bucket name (required when backend is `gcs`) | — |
+| `SESSION_SECRET` | HMAC key for signing session cookies | **required** |
+| `GOOGLE_CLIENT_ID` | Google OAuth 2.0 client ID | **required** |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth 2.0 client secret | **required** |
+| `ALLOWED_DOMAINS` | Comma-separated list of allowed email domains | all allowed |
+
+## Example `.env`
+
+```bash
+HOSTNAME=https://stashy.example.com
+SESSION_SECRET=change-me-to-a-random-string
+GOOGLE_CLIENT_ID=123456789.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=GOCSPX-xxxxx
+STORAGE_BACKEND=local
+LOCAL_STORAGE_DIR=/var/lib/stashy/storage
+DB_DSN=file:/var/lib/stashy/stashy.db
+ALLOWED_DOMAINS=example.com,mycompany.org
+```
+
+<Warning>
+  Always set `SESSION_SECRET` to a strong random value in production. Never use the default.
+</Warning>

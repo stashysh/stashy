@@ -1,0 +1,58 @@
+---
+title: Authentication
+description: Google OAuth sign-in and API key management
+---
+
+Stashy has two auth layers: **Google OAuth** for the web dashboard and **API keys** for programmatic access.
+
+## Google OAuth
+
+Users sign in at `/` via Google. After login, the dashboard lets you manage API keys.
+
+### Setup
+
+1. Go to [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials)
+2. Create an OAuth 2.0 Client ID (Web application)
+3. Set the authorized redirect URI to `{HOSTNAME}/auth/google/callback`
+4. Set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`
+
+### Domain Restrictions
+
+Restrict sign-in to specific email domains:
+
+```bash
+ALLOWED_DOMAINS=example.com,mycompany.org
+```
+
+Leave unset to allow all Google accounts.
+
+## API Keys
+
+All `/api/v1/*` endpoints require a Bearer token.
+
+### Generate a Key
+
+Sign in to the dashboard and click "Create API Key". The full key is shown **once** — store it securely.
+
+### Usage
+
+```bash
+curl -H "Authorization: Bearer sk_live_abc123..." \
+  -X POST http://localhost:8080/api/v1/files \
+  -H "Content-Type: image/png" \
+  --data-binary @photo.png
+```
+
+### Management Endpoints
+
+| Method | Path | Description |
+|---|---|---|
+| `POST` | `/auth/keys` | Create a new API key |
+| `GET` | `/auth/keys` | List your API keys |
+| `DELETE` | `/auth/keys/{id}` | Revoke an API key |
+
+These endpoints require an active session (cookie-based, from OAuth sign-in).
+
+## File Access
+
+Files are **private by default** — accessible only to logged-in users at `/{id}`. Use [Publish](/api-reference/files/publish) to make a file public. See [File Access](/file-access) for details.
