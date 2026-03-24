@@ -1,0 +1,52 @@
+---
+title: Protocols
+description: REST, gRPC, Connect, and gRPC-Web from a single port
+---
+
+Stashy serves all protocols from a single endpoint using [Vanguard](https://github.com/connectrpc/vanguard-go) transcoding. No separate ports or gateways needed.
+
+## Supported Protocols
+
+| Protocol | Transport | Use case |
+|---|---|---|
+| **REST** | HTTP/1.1 or HTTP/2 | curl, any HTTP client |
+| **gRPC** | HTTP/2 (h2c) | Go, Java, Python gRPC clients |
+| **Connect** | HTTP/1.1 or HTTP/2 | [connectrpc](https://connectrpc.com) clients (Go, TypeScript) |
+| **gRPC-Web** | HTTP/1.1 or HTTP/2 | Browser clients |
+
+## REST
+
+Standard HTTP — works with curl, fetch, or any HTTP library:
+
+```bash
+curl -H "Authorization: Bearer $API_KEY" \
+  -X POST http://localhost:8080/api/v1/files \
+  -H "Content-Type: image/png" \
+  --data-binary @photo.png
+```
+
+## gRPC
+
+Connect using any gRPC client with h2c (plaintext HTTP/2):
+
+```go
+conn, _ := grpc.Dial("localhost:8080", grpc.WithTransportCredentials(insecure.NewCredentials()))
+client := stashyv1alpha1.NewStorageServiceClient(conn)
+```
+
+## Connect (connectrpc)
+
+```go
+client := stashyv1alpha1connect.NewStorageServiceClient(
+    http.DefaultClient,
+    "http://localhost:8080",
+)
+```
+
+## Proto Definition
+
+The service is defined in `proto/stashy/v1alpha1/stashy.proto`. Regenerate with:
+
+```bash
+just generate
+```

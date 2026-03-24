@@ -1,0 +1,84 @@
+---
+title: Deployment
+description: Docker, reverse proxy, and production tips
+---
+
+## Docker Compose
+
+```yaml
+services:
+  stashy:
+    image: ghcr.io/stashysh/stashy:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - DB_DSN=file:/app/data/stashy.db
+      - STORAGE_BACKEND=local
+      - LOCAL_STORAGE_DIR=/app/data/storage
+      - SESSION_SECRET=${SESSION_SECRET}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - HOSTNAME=${HOSTNAME}
+    volumes:
+      - stashy-data:/app/data
+
+volumes:
+  stashy-data:
+```
+
+## Reverse Proxy
+
+### Caddy
+
+```
+stashy.example.com {
+    reverse_proxy localhost:8080
+}
+```
+
+### Nginx
+
+```nginx
+server {
+    server_name stashy.example.com;
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        client_max_body_size 100M;
+    }
+}
+```
+
+## CDN Subdomain
+
+Map a CDN or subdomain to serve files directly:
+
+```
+cdn.example.com/{id}  →  stashy:8080/{id}
+```
+
+Files at `/{id}` are public — no auth headers needed, making this ideal for CDN caching.
+
+## Production Checklist
+
+<AccordionGroup>
+  <Accordion title="Security">
+    - Set `SESSION_SECRET` to a strong random value
+    - Set `ALLOWED_DOMAINS` to restrict sign-in
+    - Put Stashy behind TLS (reverse proxy or load balancer)
+    - Set `HOSTNAME` to your public URL
+  </Accordion>
+  <Accordion title="Storage">
+    - Use `local` or `gcs` backend (not `memory`)
+    - Mount a persistent volume for local storage
+    - Back up your storage directory regularly
+  </Accordion>
+  <Accordion title="Database">
+    - Use PostgreSQL for multi-instance setups
+    - Back up SQLite file if using single-instance
+    - Always run migrations on upgrade: `stashy serve --migrate`
+  </Accordion>
+</AccordionGroup>

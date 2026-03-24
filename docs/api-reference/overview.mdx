@@ -1,0 +1,35 @@
+---
+title: Overview
+description: API authentication, base URL, and conventions
+---
+
+## Base URL
+
+```
+http://localhost:8080
+```
+
+In production, set `HOSTNAME` to your public URL (e.g., `https://stashy.example.com`).
+
+## Authentication
+
+All `/api/v1/*` endpoints require a Bearer token:
+
+```bash
+Authorization: Bearer <your-api-key>
+```
+
+Generate API keys from the web dashboard after signing in with Google OAuth.
+
+## Endpoints
+
+| Method | Path | Auth | Description |
+|---|---|---|---|
+| `POST` | `/api/v1/files` | Bearer | Upload a file |
+| `GET` | `/api/v1/files/{id}` | Bearer | Download a file |
+| `POST` | `/api/v1/files/{id}/publish` | Bearer | Make a file public |
+| `POST` | `/api/v1/files/{id}/unpublish` | Bearer | Remove public access |
+
+## OpenAPI Spec
+
+The full OpenAPI 3.1 spec is available at [`spec.stashy.sh/openapi.yaml`](https://spec.stashy.sh/openapi.yaml) or at `/openapi.yaml` on your running instance.

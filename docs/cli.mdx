@@ -1,0 +1,45 @@
+---
+title: CLI Reference
+description: Stashy command-line interface
+---
+
+## Commands
+
+### `stashy serve`
+
+Start the HTTP server.
+
+```bash
+stashy serve [--migrate]
+```
+
+| Flag | Description |
+|---|---|
+| `--migrate` | Run database migrations before starting |
+
+This is the default command — running `stashy` with no arguments starts the server.
+
+### `stashy migrate`
+
+Run database migrations and exit.
+
+```bash
+stashy migrate
+```
+
+### `stashy version`
+
+Print the version string.
+
+```bash
+stashy version
+# stashy v0.1.0
+```
+
+### `stashy help`
+
+Print usage information.
+
+```bash
+stashy help
+```

@@ -1,0 +1,40 @@
+---
+title: Storage Backends
+description: Memory, local disk, and Google Cloud Storage
+---
+
+Set `STORAGE_BACKEND` to choose where files are stored.
+
+## Memory
+
+```bash
+STORAGE_BACKEND=memory  # default
+```
+
+In-memory and ephemeral — files are lost on restart. Good for development and testing.
+
+## Local Disk
+
+```bash
+STORAGE_BACKEND=local
+LOCAL_STORAGE_DIR=./storage
+```
+
+Files are written to disk. Make sure the directory exists and is writable. Use a persistent volume in Docker.
+
+## Google Cloud Storage
+
+```bash
+STORAGE_BACKEND=gcs
+GCS_BUCKET=my-stashy-bucket
+```
+
+Uses [Application Default Credentials](https://cloud.google.com/docs/authentication/application-default-credentials). In GCE/Cloud Run, this works automatically. Locally, run:
+
+```bash
+gcloud auth application-default login
+```
+
+<Tip>
+  For production, use `local` or `gcs`. The `memory` backend is only for development.
+</Tip>

@@ -1,0 +1,69 @@
+---
+title: Quickstart
+description: Get Stashy running in under 5 minutes
+---
+
+## Prerequisites
+
+- [Go 1.22+](https://go.dev/dl/) (for building from source) or [Docker](https://docs.docker.com/get-docker/)
+- A [Google OAuth](https://console.cloud.google.com/apis/credentials) client ID and secret
+
+## Option 1: From Source
+
+<Steps>
+  <Step title="Set environment variables">
+    ```bash
+    export SESSION_SECRET="$(openssl rand -hex 32)"
+    export GOOGLE_CLIENT_ID="your-client-id"
+    export GOOGLE_CLIENT_SECRET="your-client-secret"
+    ```
+  </Step>
+  <Step title="Run the server">
+    ```bash
+    go run ./cmd/stashy serve --migrate
+    ```
+  </Step>
+  <Step title="Upload your first file">
+    Visit `http://localhost:8080`, sign in, create an API key, then:
+    ```bash
+    curl -H "Authorization: Bearer <your-api-key>" \
+      -X POST http://localhost:8080/api/v1/files \
+      -H "Content-Type: image/png" \
+      --data-binary @photo.png
+    ```
+    Response:
+    ```json
+    { "id": "V1StGXR8_Z5jdHi6B-myT" }
+    ```
+    Access it publicly at `http://localhost:8080/V1StGXR8_Z5jdHi6B-myT`.
+  </Step>
+</Steps>
+
+## Option 2: Docker Compose
+
+```bash
+cp .env.example .env   # fill in your secrets
+docker compose up
+```
+
+## Option 3: Homebrew
+
+```bash
+brew install stashysh/tap/stashy
+stashy serve --migrate
+```
+
+## Option 4: Binary Release
+
+Download from [GitHub Releases](https://github.com/stashysh/stashy/releases) for your platform (Linux, macOS, Windows — amd64/arm64).
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Configuration" icon="gear" href="/configuration">
+    All environment variables and defaults
+  </Card>
+  <Card title="Authentication" icon="lock" href="/authentication">
+    Set up OAuth and API keys
+  </Card>
+</CardGroup>

@@ -8,6 +8,10 @@ option (gnostic.openapi.v3.document) = {
     title: "Stashy API"
     version: "1.0.0"
   }
+  servers: {
+    url: "https://stashy.example.com"
+    description: "Your Stashy instance"
+  }
   components: {
     security_schemes: {
       additional_properties: [
