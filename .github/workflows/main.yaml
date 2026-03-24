@@ -17,6 +17,8 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
       - uses: bufbuild/buf-action@v1
+        with:
+          token: ${{ secrets.BUF_TOKEN }}
       - run: buf generate
       - run: go build ./...
       - run: go vet ./...
