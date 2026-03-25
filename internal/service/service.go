@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 
@@ -42,6 +43,9 @@ func (s *StorageService) CreateFile(
 			continue
 		}
 		contentType = msg.File.ContentType
+		if strings.HasPrefix(contentType, "multipart/") {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("multipart uploads are not supported, use --data-binary with an explicit Content-Type header"))
+		}
 		if contentType == "" {
 			contentType = "application/octet-stream"
 		}
