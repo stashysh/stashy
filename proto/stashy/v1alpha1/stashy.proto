@@ -72,12 +72,18 @@ service StorageService {
 
   // Make a file publicly accessible.
   rpc PublishFile(PublishFileRequest) returns (PublishFileResponse) {
-    option (google.api.http) = {post: "/api/v1/files/{id}/publish"};
+    option (google.api.http) = {
+      post: "/api/v1/files/{id}/publish"
+      body: "*"
+    };
   }
 
   // Remove public access from a file.
   rpc UnpublishFile(UnpublishFileRequest) returns (UnpublishFileResponse) {
-    option (google.api.http) = {post: "/api/v1/files/{id}/unpublish"};
+    option (google.api.http) = {
+      post: "/api/v1/files/{id}/unpublish"
+      body: "*"
+    };
   }
 }
 

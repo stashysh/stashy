@@ -204,7 +204,14 @@ func cmdServe(migrate bool) {
 
 	transcoder, err := vanguard.NewTranscoder([]*vanguard.Service{
 		vanguard.NewService(path, handler),
-	})
+	},
+		vanguard.WithCodec(func(res vanguard.TypeResolver) vanguard.Codec {
+			codec := vanguard.NewJSONCodec(res)
+			codec.MarshalOptions.UseProtoNames = true
+			codec.UnmarshalOptions.DiscardUnknown = true
+			return codec
+		}),
+	)
 	if err != nil {
 		log.Fatalf("failed to create transcoder: %v", err)
 	}
