@@ -100,7 +100,7 @@ func fileHandler(store storage.Storage, sessions *auth.SessionManager) http.Hand
 
 		if !meta.Public {
 			if _, ok := sessions.GetUserID(r); !ok {
-				http.NotFound(w, r)
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
 		}
