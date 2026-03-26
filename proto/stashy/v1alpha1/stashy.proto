@@ -112,6 +112,11 @@ service StorageService {
       body: "*"
     };
   }
+
+  // Delete a file. Only the owner can delete.
+  rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse) {
+    option (google.api.http) = {delete: "/api/v1/files/{id}"};
+  }
 }
 
 message CreateFileRequest {
@@ -140,6 +145,12 @@ message UpdateFileRequest {
 }
 
 message UpdateFileResponse {}
+
+message DeleteFileRequest {
+  string id = 1 [(buf.validate.field).required = true];
+}
+
+message DeleteFileResponse {}
 
 message PublishFileRequest {
   string id = 1 [(buf.validate.field).required = true];

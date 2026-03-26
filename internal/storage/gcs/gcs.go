@@ -111,6 +111,27 @@ func (s *Storage) Update(ctx context.Context, id, owner, contentType string, r i
 	}, nil
 }
 
+func (s *Storage) Delete(ctx context.Context, id, owner string) error {
+	obj := s.bucket.Object(id)
+
+	attrs, err := obj.Attrs(ctx)
+	if err != nil {
+		if errors.Is(err, gcstorage.ErrObjectNotExist) {
+			return fmt.Errorf("file not found: %s", id)
+		}
+		return fmt.Errorf("getting object attrs: %w", err)
+	}
+
+	if attrs.Metadata["owner"] != owner {
+		return fmt.Errorf("permission denied")
+	}
+
+	if err := obj.Delete(ctx); err != nil {
+		return fmt.Errorf("deleting object: %w", err)
+	}
+	return nil
+}
+
 func (s *Storage) SetPublic(ctx context.Context, id string, public bool) error {
 	obj := s.bucket.Object(id)
 

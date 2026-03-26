@@ -135,6 +135,15 @@ curl -H "Authorization: Bearer <api-key>" \
 
 Only the file owner can replace it.
 
+### Delete a file
+
+```bash
+curl -H "Authorization: Bearer <api-key>" \
+  -X DELETE http://localhost:8080/api/v1/files/{id}
+```
+
+Only the file owner can delete it.
+
 ### Publish a file
 
 ```bash

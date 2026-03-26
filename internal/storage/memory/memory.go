@@ -97,6 +97,21 @@ func (s *Storage) Update(_ context.Context, id, owner, contentType string, r io.
 	}, nil
 }
 
+func (s *Storage) Delete(_ context.Context, id, owner string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	f, ok := s.files[id]
+	if !ok {
+		return fmt.Errorf("file not found: %s", id)
+	}
+	if f.owner != owner {
+		return fmt.Errorf("permission denied")
+	}
+	delete(s.files, id)
+	return nil
+}
+
 func (s *Storage) SetPublic(_ context.Context, id string, public bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
