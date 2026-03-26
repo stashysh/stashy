@@ -117,12 +117,23 @@ curl -H "Authorization: Bearer <api-key>" \
   --data-binary @photo.png
 ```
 
-### Download a file (via API)
+### Download a file
 
 ```bash
 curl -H "Authorization: Bearer <api-key>" \
   http://localhost:8080/api/v1/files/{id}
 ```
+
+### Replace a file
+
+```bash
+curl -H "Authorization: Bearer <api-key>" \
+  -X PUT http://localhost:8080/api/v1/files/{id} \
+  -H "Content-Type: image/png" \
+  --data-binary @photo-v2.png
+```
+
+Only the file owner can replace it.
 
 ### Publish a file
 
@@ -138,7 +149,7 @@ curl -H "Authorization: Bearer <api-key>" \
   -X POST http://localhost:8080/api/v1/files/{id}/unpublish
 ```
 
-### Direct file access
+## File access
 
 ```bash
 curl http://localhost:8080/{id}
