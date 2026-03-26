@@ -28,13 +28,24 @@ func New(store storage.Storage, hostname string) *StorageService {
 	return &StorageService{store: store, hostname: strings.TrimRight(hostname, "/")}
 }
 
+// validateContentType checks and normalizes the content type from an HttpBody.
+func validateContentType(ct string) (string, error) {
+	if strings.HasPrefix(ct, "multipart/") {
+		return "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("multipart uploads are not supported, use --data-binary with an explicit Content-Type header"))
+	}
+	if ct == "" {
+		return "application/octet-stream", nil
+	}
+	return ct, nil
+}
+
 func (s *StorageService) CreateFile(
 	ctx context.Context,
 	stream *connect.ClientStream[stashyv1alpha1.CreateFileRequest],
 ) (*connect.Response[stashyv1alpha1.CreateFileResponse], error) {
 	owner, _ := auth.UserIDFromContext(ctx)
 
-	// Read first chunk to determine content type before starting storage write.
+	// Read first chunk to get content type.
 	var contentType string
 	var firstData []byte
 	for stream.Receive() {
@@ -42,13 +53,11 @@ func (s *StorageService) CreateFile(
 		if msg.File == nil {
 			continue
 		}
-		contentType = msg.File.ContentType
-		if strings.HasPrefix(contentType, "multipart/") {
-			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("multipart uploads are not supported, use --data-binary with an explicit Content-Type header"))
+		ct, err := validateContentType(msg.File.ContentType)
+		if err != nil {
+			return nil, err
 		}
-		if contentType == "" {
-			contentType = "application/octet-stream"
-		}
+		contentType = ct
 		firstData = msg.File.Data
 		break
 	}
@@ -105,6 +114,90 @@ func (s *StorageService) CreateFile(
 		Id:  putResult.meta.ID,
 		Url: s.hostname + "/" + putResult.meta.ID,
 	}), nil
+}
+
+func (s *StorageService) UpdateFile(
+	ctx context.Context,
+	stream *connect.ClientStream[stashyv1alpha1.UpdateFileRequest],
+) (*connect.Response[stashyv1alpha1.UpdateFileResponse], error) {
+	owner, ok := auth.UserIDFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+	}
+
+	// First message contains both id (from path) and file data (from body).
+	if !stream.Receive() {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("file id is required"))
+	}
+	msg := stream.Msg()
+	id := msg.Id
+	if id == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("file id is required"))
+	}
+
+	var ct string
+	if msg.File != nil {
+		ct = msg.File.ContentType
+	}
+	contentType, err := validateContentType(ct)
+	if err != nil {
+		return nil, err
+	}
+	var firstData []byte
+	if msg.File != nil {
+		firstData = msg.File.Data
+	}
+
+	pr, pw := io.Pipe()
+	var updateResult struct {
+		meta *storage.FileMeta
+		err  error
+	}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		updateResult.meta, updateResult.err = s.store.Update(ctx, id, owner, contentType, pr)
+	}()
+
+	if len(firstData) > 0 {
+		if _, err := pw.Write(firstData); err != nil {
+			pw.Close()
+			<-done
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+	}
+
+	for stream.Receive() {
+		msg := stream.Msg()
+		if msg.File == nil {
+			continue
+		}
+		if _, err := pw.Write(msg.File.Data); err != nil {
+			pw.Close()
+			<-done
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+	}
+	if err := stream.Err(); err != nil {
+		pw.CloseWithError(err)
+		<-done
+		return nil, err
+	}
+
+	pw.Close()
+	<-done
+
+	if updateResult.err != nil {
+		if strings.Contains(updateResult.err.Error(), "not found") {
+			return nil, connect.NewError(connect.CodeNotFound, updateResult.err)
+		}
+		if strings.Contains(updateResult.err.Error(), "permission denied") {
+			return nil, connect.NewError(connect.CodePermissionDenied, updateResult.err)
+		}
+		return nil, connect.NewError(connect.CodeInternal, updateResult.err)
+	}
+
+	return connect.NewResponse(&stashyv1alpha1.UpdateFileResponse{}), nil
 }
 
 func (s *StorageService) PublishFile(

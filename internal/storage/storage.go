@@ -29,6 +29,9 @@ type Storage interface {
 	// Get retrieves a file by ID. The caller must close the returned ReadCloser.
 	Get(ctx context.Context, id string) (io.ReadCloser, *FileMeta, error)
 
+	// Update replaces the content of an existing file. Returns error if not found or not owned.
+	Update(ctx context.Context, id, owner, contentType string, r io.Reader) (*FileMeta, error)
+
 	// SetPublic sets the public visibility of a file.
 	SetPublic(ctx context.Context, id string, public bool) error
 }

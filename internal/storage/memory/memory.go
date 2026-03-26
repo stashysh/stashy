@@ -68,6 +68,35 @@ func (s *Storage) Get(_ context.Context, id string) (io.ReadCloser, *storage.Fil
 	}, nil
 }
 
+func (s *Storage) Update(_ context.Context, id, owner, contentType string, r io.Reader) (*storage.FileMeta, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	f, ok := s.files[id]
+	if !ok {
+		return nil, fmt.Errorf("file not found: %s", id)
+	}
+	if f.owner != owner {
+		return nil, fmt.Errorf("permission denied")
+	}
+
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("reading file data: %w", err)
+	}
+
+	f.data = data
+	f.contentType = contentType
+
+	return &storage.FileMeta{
+		ID:          id,
+		Owner:       owner,
+		ContentType: contentType,
+		Size:        int64(len(data)),
+		Public:      f.public,
+	}, nil
+}
+
 func (s *Storage) SetPublic(_ context.Context, id string, public bool) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
