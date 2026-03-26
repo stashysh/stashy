@@ -107,6 +107,59 @@ func (s *Storage) Get(_ context.Context, id string) (io.ReadCloser, *storage.Fil
 	}, nil
 }
 
+func (s *Storage) Update(_ context.Context, id, owner, contentType string, r io.Reader) (*storage.FileMeta, error) {
+	mf, err := os.Open(s.metaPath(id))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("file not found: %s", id)
+		}
+		return nil, fmt.Errorf("reading meta: %w", err)
+	}
+
+	var m meta
+	if err := json.NewDecoder(mf).Decode(&m); err != nil {
+		mf.Close()
+		return nil, fmt.Errorf("decoding meta: %w", err)
+	}
+	mf.Close()
+
+	if m.Owner != owner {
+		return nil, fmt.Errorf("permission denied")
+	}
+
+	f, err := os.Create(s.dataPath(id))
+	if err != nil {
+		return nil, fmt.Errorf("creating file: %w", err)
+	}
+	defer f.Close()
+
+	n, err := io.Copy(f, r)
+	if err != nil {
+		return nil, fmt.Errorf("writing file: %w", err)
+	}
+
+	m.ContentType = contentType
+	m.Size = n
+
+	wf, err := os.Create(s.metaPath(id))
+	if err != nil {
+		return nil, fmt.Errorf("writing meta: %w", err)
+	}
+	defer wf.Close()
+
+	if err := json.NewEncoder(wf).Encode(&m); err != nil {
+		return nil, fmt.Errorf("encoding meta: %w", err)
+	}
+
+	return &storage.FileMeta{
+		ID:          id,
+		Owner:       owner,
+		ContentType: contentType,
+		Size:        n,
+		Public:      m.Public,
+	}, nil
+}
+
 func (s *Storage) SetPublic(_ context.Context, id string, public bool) error {
 	mf, err := os.Open(s.metaPath(id))
 	if err != nil {

@@ -2,6 +2,7 @@ package gcs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
@@ -52,7 +53,7 @@ func (s *Storage) Get(ctx context.Context, id string) (io.ReadCloser, *storage.F
 
 	attrs, err := obj.Attrs(ctx)
 	if err != nil {
-		if err == gcstorage.ErrObjectNotExist {
+		if errors.Is(err, gcstorage.ErrObjectNotExist) {
 			return nil, nil, fmt.Errorf("file not found: %s", id)
 		}
 		return nil, nil, fmt.Errorf("getting object attrs: %w", err)
@@ -72,12 +73,50 @@ func (s *Storage) Get(ctx context.Context, id string) (io.ReadCloser, *storage.F
 	}, nil
 }
 
+func (s *Storage) Update(ctx context.Context, id, owner, contentType string, r io.Reader) (*storage.FileMeta, error) {
+	obj := s.bucket.Object(id)
+
+	attrs, err := obj.Attrs(ctx)
+	if err != nil {
+		if errors.Is(err, gcstorage.ErrObjectNotExist) {
+			return nil, fmt.Errorf("file not found: %s", id)
+		}
+		return nil, fmt.Errorf("getting object attrs: %w", err)
+	}
+
+	if attrs.Metadata["owner"] != owner {
+		return nil, fmt.Errorf("permission denied")
+	}
+
+	w := obj.NewWriter(ctx)
+	w.ContentType = contentType
+	w.Metadata = attrs.Metadata
+
+	n, err := io.Copy(w, r)
+	if err != nil {
+		w.Close()
+		return nil, fmt.Errorf("writing to GCS: %w", err)
+	}
+
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("closing GCS writer: %w", err)
+	}
+
+	return &storage.FileMeta{
+		ID:          id,
+		Owner:       owner,
+		ContentType: contentType,
+		Size:        n,
+		Public:      attrs.Metadata["public"] == "true",
+	}, nil
+}
+
 func (s *Storage) SetPublic(ctx context.Context, id string, public bool) error {
 	obj := s.bucket.Object(id)
 
 	attrs, err := obj.Attrs(ctx)
 	if err != nil {
-		if err == gcstorage.ErrObjectNotExist {
+		if errors.Is(err, gcstorage.ErrObjectNotExist) {
 			return fmt.Errorf("file not found: %s", id)
 		}
 		return fmt.Errorf("getting object attrs: %w", err)

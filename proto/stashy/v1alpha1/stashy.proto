@@ -70,6 +70,33 @@ service StorageService {
     };
   }
 
+  // Replace the content of an existing file. Only the owner can update.
+  rpc UpdateFile(stream UpdateFileRequest) returns (UpdateFileResponse) {
+    option (google.api.http) = {
+      put: "/api/v1/files/{id}"
+      body: "file"
+    };
+    option (gnostic.openapi.v3.operation) = {
+      request_body: {
+        request_body: {
+          content: {
+            additional_properties: {
+              name: "*/*"
+              value: {
+                schema: {
+                  schema: {
+                    type: "string"
+                    format: "binary"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    };
+  }
+
   // Make a file publicly accessible.
   rpc PublishFile(PublishFileRequest) returns (PublishFileResponse) {
     option (google.api.http) = {
@@ -106,6 +133,13 @@ message GetFileRequest {
 message GetFileResponse {
   google.api.HttpBody file = 1 [(buf.validate.field).required = true];
 }
+
+message UpdateFileRequest {
+  string id = 1 [(buf.validate.field).required = true];
+  google.api.HttpBody file = 2 [(buf.validate.field).required = true];
+}
+
+message UpdateFileResponse {}
 
 message PublishFileRequest {
   string id = 1 [(buf.validate.field).required = true];
