@@ -160,6 +160,31 @@ func (s *Storage) Update(_ context.Context, id, owner, contentType string, r io.
 	}, nil
 }
 
+func (s *Storage) Delete(_ context.Context, id, owner string) error {
+	mf, err := os.Open(s.metaPath(id))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("file not found: %s", id)
+		}
+		return fmt.Errorf("reading meta: %w", err)
+	}
+
+	var m meta
+	if err := json.NewDecoder(mf).Decode(&m); err != nil {
+		mf.Close()
+		return fmt.Errorf("decoding meta: %w", err)
+	}
+	mf.Close()
+
+	if m.Owner != owner {
+		return fmt.Errorf("permission denied")
+	}
+
+	os.Remove(s.dataPath(id))
+	os.Remove(s.metaPath(id))
+	return nil
+}
+
 func (s *Storage) SetPublic(_ context.Context, id string, public bool) error {
 	mf, err := os.Open(s.metaPath(id))
 	if err != nil {

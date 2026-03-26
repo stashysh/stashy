@@ -32,6 +32,9 @@ type Storage interface {
 	// Update replaces the content of an existing file. Returns error if not found or not owned.
 	Update(ctx context.Context, id, owner, contentType string, r io.Reader) (*FileMeta, error)
 
+	// Delete removes a file. Returns error if not found or not owned.
+	Delete(ctx context.Context, id, owner string) error
+
 	// SetPublic sets the public visibility of a file.
 	SetPublic(ctx context.Context, id string, public bool) error
 }

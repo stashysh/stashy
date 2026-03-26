@@ -200,6 +200,27 @@ func (s *StorageService) UpdateFile(
 	return connect.NewResponse(&stashyv1alpha1.UpdateFileResponse{}), nil
 }
 
+func (s *StorageService) DeleteFile(
+	ctx context.Context,
+	req *connect.Request[stashyv1alpha1.DeleteFileRequest],
+) (*connect.Response[stashyv1alpha1.DeleteFileResponse], error) {
+	owner, ok := auth.UserIDFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+	}
+
+	if err := s.store.Delete(ctx, req.Msg.Id, owner); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			return nil, connect.NewError(connect.CodeNotFound, err)
+		}
+		if strings.Contains(err.Error(), "permission denied") {
+			return nil, connect.NewError(connect.CodePermissionDenied, err)
+		}
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+	return connect.NewResponse(&stashyv1alpha1.DeleteFileResponse{}), nil
+}
+
 func (s *StorageService) PublishFile(
 	ctx context.Context,
 	req *connect.Request[stashyv1alpha1.PublishFileRequest],
