@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	gcstorage "cloud.google.com/go/storage"
 	"connectrpc.com/vanguard"
 	"golang.org/x/net/http2"
@@ -27,6 +29,7 @@ import (
 	"github.com/stashysh/stashy/internal/storage/gcs"
 	"github.com/stashysh/stashy/internal/storage/local"
 	"github.com/stashysh/stashy/internal/storage/memory"
+	s3storage "github.com/stashysh/stashy/internal/storage/s3"
 	"github.com/stashysh/stashy/internal/web"
 )
 
@@ -55,6 +58,13 @@ func newStorage() (storage.Storage, error) {
 			return nil, err
 		}
 		return gcs.New(client, envRequired("GCS_BUCKET")), nil
+	case "s3":
+		cfg, err := config.LoadDefaultConfig(context.Background())
+		if err != nil {
+			return nil, fmt.Errorf("loading AWS config: %w", err)
+		}
+		client := s3.NewFromConfig(cfg)
+		return s3storage.New(client, envRequired("S3_BUCKET")), nil
 	case "local":
 		return local.New(env("LOCAL_STORAGE_DIR", "./storage"))
 	default:
