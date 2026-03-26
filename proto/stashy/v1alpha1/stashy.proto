@@ -115,7 +115,10 @@ service StorageService {
 
   // Delete a file. Only the owner can delete.
   rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse) {
-    option (google.api.http) = {delete: "/api/v1/files/{id}"};
+    option (google.api.http) = {
+      delete: "/api/v1/files/{id}"
+      body: "*"
+    };
   }
 }
 
