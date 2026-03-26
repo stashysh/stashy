@@ -1,6 +1,6 @@
 ---
 title: Storage Backends
-description: Memory, local disk, and Google Cloud Storage
+description: Memory, local disk, Google Cloud Storage, and Amazon S3
 ---
 
 Set `STORAGE_BACKEND` to choose where files are stored.
@@ -35,6 +35,15 @@ Uses [Application Default Credentials](https://cloud.google.com/docs/authenticat
 gcloud auth application-default login
 ```
 
+## Amazon S3
+
+```bash
+STORAGE_BACKEND=s3
+S3_BUCKET=my-stashy-bucket
+```
+
+Uses the standard AWS SDK credential chain (environment variables, `~/.aws/credentials`, IAM role, etc.). Works with any S3-compatible storage like MinIO, Cloudflare R2, or DigitalOcean Spaces — set `AWS_ENDPOINT_URL` to point to your provider.
+
 <Tip>
-  For production, use `local` or `gcs`. The `memory` backend is only for development.
+  For production, use `local`, `gcs`, or `s3`. The `memory` backend is only for development.
 </Tip>

@@ -39,9 +39,10 @@ docker compose up
 | `PORT` | Server listen port | `8080` |
 | `HOSTNAME` | Public base URL | `http://localhost:$PORT` |
 | `DB_DSN` | Database connection string (see below) | `file:stashy.db` |
-| `STORAGE_BACKEND` | Storage backend: `memory`, `local`, or `gcs` | `memory` |
+| `STORAGE_BACKEND` | Storage backend: `memory`, `local`, `gcs`, or `s3` | `memory` |
 | `LOCAL_STORAGE_DIR` | Directory for local file storage | `./storage` |
 | `GCS_BUCKET` | GCS bucket name (required when `STORAGE_BACKEND=gcs`) | — |
+| `S3_BUCKET` | S3 bucket name (required when `STORAGE_BACKEND=s3`) | — |
 | `SESSION_SECRET` | HMAC key for signing session cookies | required |
 | `GOOGLE_CLIENT_ID` | Google OAuth 2.0 client ID | required |
 | `GOOGLE_CLIENT_SECRET` | Google OAuth 2.0 client secret | required |
@@ -172,3 +173,4 @@ Ideal for CDN or subdomain mapping (e.g., `cdn.example.com/{id}`).
 - **memory** — in-memory, ephemeral; good for development
 - **local** — files on disk at `LOCAL_STORAGE_DIR`
 - **gcs** — Google Cloud Storage
+- **s3** — Amazon S3 or S3-compatible storage (MinIO, R2, etc.)
