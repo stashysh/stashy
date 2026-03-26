@@ -236,6 +236,9 @@ func cmdServe(migrate bool) {
 		}
 	}
 
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
 	mux.Handle("GET /{$}", webUI)
 	mux.HandleFunc("GET /{id}", fileHandler(store, sessions))
 
