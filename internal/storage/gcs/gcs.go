@@ -151,7 +151,7 @@ func (s *Storage) SetPublic(ctx context.Context, id string, public bool) error {
 	if public {
 		meta["public"] = "true"
 	} else {
-		delete(meta, "public")
+		meta["public"] = "false"
 	}
 
 	_, err = obj.Update(ctx, gcstorage.ObjectAttrsToUpdate{Metadata: meta})
