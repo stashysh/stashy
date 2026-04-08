@@ -38,13 +38,7 @@ type DB struct {
 }
 
 func New(ctx context.Context, driver, dsn string) (*DB, error) {
-	// MySQL DSN: strip mysql:// prefix, go-sql-driver expects user:pass@tcp(host)/db
-	actualDSN := dsn
-	if driver == "mysql" {
-		actualDSN = strings.TrimPrefix(dsn, "mysql://")
-	}
-
-	sqlDB, err := sql.Open(driver, actualDSN)
+	sqlDB, err := sql.Open(driver, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
@@ -82,24 +76,6 @@ func (d *DB) UpsertUser(ctx context.Context, googleID, email, name string) (*Use
 	now := time.Now()
 
 	switch d.dialect {
-	case "mysql":
-		query := `INSERT INTO users (google_id, email, name, created_at)
-			VALUES (?, ?, ?, ?)
-			ON DUPLICATE KEY UPDATE email = VALUES(email), name = VALUES(name)`
-		_, err := d.sql.ExecContext(ctx, query, googleID, email, name, now)
-		if err != nil {
-			return nil, fmt.Errorf("upserting user: %w", err)
-		}
-		// Fetch the user back.
-		var user User
-		err = d.sql.QueryRowContext(ctx,
-			`SELECT id, google_id, email, name, created_at FROM users WHERE google_id = ?`,
-			googleID).Scan(&user.ID, &user.GoogleID, &user.Email, &user.Name, &user.CreatedAt)
-		if err != nil {
-			return nil, fmt.Errorf("fetching upserted user: %w", err)
-		}
-		return &user, nil
-
 	case "pgx":
 		query := `INSERT INTO users (google_id, email, name, created_at)
 			VALUES ($1, $2, $3, $4)
@@ -157,17 +133,6 @@ func (d *DB) CreateAPIKey(ctx context.Context, userID, label string) (string, *A
 
 	var id string
 	switch d.dialect {
-	case "mysql":
-		result, err := d.sql.ExecContext(ctx,
-			`INSERT INTO api_keys (user_id, key_hash, key_prefix, label, created_at)
-			VALUES (?, ?, ?, ?, ?)`,
-			userID, keyHash, keyPrefix, label, now)
-		if err != nil {
-			return "", nil, fmt.Errorf("inserting api key: %w", err)
-		}
-		lastID, _ := result.LastInsertId()
-		id = fmt.Sprintf("%d", lastID)
-
 	default: // sqlite3, pgx
 		query := d.q(`INSERT INTO api_keys (user_id, key_hash, key_prefix, label, created_at)
 			VALUES (?, ?, ?, ?, ?) RETURNING id`)
@@ -242,7 +207,7 @@ func (d *DB) DeleteAPIKey(ctx context.Context, keyID, userID string) error {
 	return nil
 }
 
-// q rewrites ? placeholders to $1, $2, ... for postgres. MySQL and SQLite use ? natively.
+// q rewrites ? placeholders to $1, $2, ... for postgres. SQLite uses ? natively.
 func (d *DB) q(query string) string {
 	if d.dialect != "pgx" {
 		return query

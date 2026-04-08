@@ -9,14 +9,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/s3"
 	gcstorage "cloud.google.com/go/storage"
 	"connectrpc.com/vanguard"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
-	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/joho/godotenv"
 	_ "modernc.org/sqlite"
@@ -76,8 +75,6 @@ func driverFromDSN(dsn string) string {
 	switch {
 	case strings.HasPrefix(dsn, "postgres://"), strings.HasPrefix(dsn, "postgresql://"):
 		return "pgx"
-	case strings.HasPrefix(dsn, "mysql://"):
-		return "mysql"
 	default:
 		return "sqlite"
 	}

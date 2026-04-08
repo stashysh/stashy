@@ -14,7 +14,7 @@ just run
 ```
 
 Visit `http://localhost:8080` to sign in and generate API keys.
-Uses SQLite by default — no external dependencies needed.
+Uses SQLite by default, with PostgreSQL available when you need a separate database.
 
 ## Build
 
@@ -56,7 +56,6 @@ Driver is auto-detected from the DSN:
 |---|---|
 | `file:stashy.db` | SQLite (default) |
 | `postgres://user:pass@host/db` | PostgreSQL |
-| `mysql://user:pass@tcp(host)/db` | MySQL |
 
 Migrations are managed by [goose](https://github.com/pressly/goose). Run them explicitly:
 
