@@ -1,6 +1,6 @@
 ---
 title: Database
-description: SQLite, PostgreSQL, and MySQL support
+description: SQLite and PostgreSQL support
 ---
 
 Stashy auto-detects the database driver from the `DB_DSN` connection string.
@@ -11,7 +11,6 @@ Stashy auto-detects the database driver from the `DB_DSN` connection string.
 |---|---|
 | `file:stashy.db` | SQLite (default) |
 | `postgres://user:pass@host/db` | PostgreSQL |
-| `mysql://user:pass@tcp(host)/db` | MySQL |
 
 ## SQLite (Default)
 
@@ -30,12 +29,6 @@ DB_DSN=postgres://stashy:secret@localhost:5432/stashy?sslmode=disable
 ```
 
 Recommended for production multi-instance setups.
-
-## MySQL
-
-```bash
-DB_DSN=mysql://stashy:secret@tcp(localhost:3306)/stashy
-```
 
 ## Migrations
 

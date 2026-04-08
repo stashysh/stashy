@@ -18,23 +18,6 @@ func up001(ctx context.Context, tx *sql.Tx) error {
 	var usersSQL, keysSQL string
 
 	switch Dialect {
-	case "mysql":
-		usersSQL = `CREATE TABLE IF NOT EXISTS users (
-			id BIGINT PRIMARY KEY AUTO_INCREMENT,
-			google_id VARCHAR(255) NOT NULL UNIQUE,
-			email VARCHAR(255) NOT NULL,
-			name VARCHAR(255) NOT NULL,
-			created_at TIMESTAMP NOT NULL
-		)`
-		keysSQL = `CREATE TABLE IF NOT EXISTS api_keys (
-			id BIGINT PRIMARY KEY AUTO_INCREMENT,
-			user_id BIGINT NOT NULL,
-			key_hash VARCHAR(255) NOT NULL UNIQUE,
-			key_prefix VARCHAR(255) NOT NULL,
-			label VARCHAR(255) NOT NULL,
-			created_at TIMESTAMP NOT NULL,
-			FOREIGN KEY (user_id) REFERENCES users(id)
-		)`
 	case "pgx", "postgres":
 		usersSQL = `CREATE TABLE IF NOT EXISTS users (
 			id BIGSERIAL PRIMARY KEY,
