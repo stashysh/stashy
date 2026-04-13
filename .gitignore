@@ -9,4 +9,6 @@
 *.db-wal
 *.db-shm
 
+.gocache
+
 .env
