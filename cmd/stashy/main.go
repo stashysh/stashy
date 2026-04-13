@@ -93,6 +93,7 @@ func fileHandler(store storage.Storage, sessions *auth.SessionManager) http.Hand
 			return
 		}
 
+		// Fetch meta to check public access before streaming.
 		rc, meta, err := store.Get(r.Context(), id)
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
@@ -113,7 +114,9 @@ func fileHandler(store storage.Storage, sessions *auth.SessionManager) http.Hand
 		}
 
 		w.Header().Set("Content-Type", meta.ContentType)
-		io.Copy(w, rc)
+		if _, err := io.Copy(w, rc); err != nil {
+			log.Printf("fileHandler %s: copy: %v", id, err)
+		}
 	}
 }
 
@@ -230,6 +233,12 @@ func cmdServe(migrate bool) {
 
 	oauth.RegisterRoutes(mux)
 	apiKeys.RegisterRoutes(mux)
+
+	// Register direct handlers for upload/download before Vanguard to bypass its
+	// full-body buffering of HttpBody RPCs (see github.com/stashysh/stashy/issues/23).
+	mux.Handle("POST /api/v1/files", apiAuth(http.HandlerFunc(svc.HTTPUpload)))
+	mux.Handle("GET /api/v1/files/{id}", apiAuth(http.HandlerFunc(svc.HTTPDownload)))
+	mux.Handle("PUT /api/v1/files/{id}", apiAuth(http.HandlerFunc(svc.HTTPReplace)))
 
 	mux.Handle("/api/", apiAuth(transcoder))
 	mux.Handle(path, apiAuth(transcoder))
