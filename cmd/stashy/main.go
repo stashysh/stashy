@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -236,17 +237,24 @@ func cmdServe(migrate bool) {
 
 	// Register direct handlers for upload/download before Vanguard to bypass its
 	// full-body buffering of HttpBody RPCs (see github.com/stashysh/stashy/issues/23).
-	mux.Handle("POST /api/v1/files", apiAuth(http.HandlerFunc(svc.HTTPUpload)))
-	mux.Handle("GET /api/v1/files/{id}", apiAuth(http.HandlerFunc(svc.HTTPDownload)))
-	mux.Handle("PUT /api/v1/files/{id}", apiAuth(http.HandlerFunc(svc.HTTPReplace)))
+	mux.Handle("POST /v1/files", apiAuth(http.HandlerFunc(svc.HTTPUpload)))
+	mux.Handle("GET /v1/files/{id}", apiAuth(http.HandlerFunc(svc.HTTPDownload)))
+	mux.Handle("PUT /v1/files/{id}", apiAuth(http.HandlerFunc(svc.HTTPReplace)))
 
-	mux.Handle("/api/", apiAuth(transcoder))
+	mux.Handle("/v1/", apiAuth(transcoder))
 	mux.Handle(path, apiAuth(transcoder))
 
 	publicFS := http.FileServer(http.Dir("public"))
+	if spec, err := os.ReadFile("public/openapi.yaml"); err == nil {
+		spec = bytes.ReplaceAll(spec, []byte("https://stashy.example.com"), []byte(hostname))
+		mux.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/yaml")
+			w.Write(spec)
+		})
+	}
 	if entries, err := os.ReadDir("public"); err == nil {
 		for _, e := range entries {
-			if !e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+			if !e.IsDir() && !strings.HasPrefix(e.Name(), ".") && e.Name() != "openapi.yaml" {
 				mux.Handle("GET /"+e.Name(), publicFS)
 			}
 		}

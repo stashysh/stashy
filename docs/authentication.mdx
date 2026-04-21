@@ -28,7 +28,7 @@ Leave unset to allow all Google accounts.
 
 ## API Keys
 
-All `/api/v1/*` endpoints require a Bearer token.
+All `/v1/*` endpoints require a Bearer token.
 
 ### Generate a Key
 
@@ -38,7 +38,7 @@ Sign in to the dashboard and click "Create API Key". The full key is shown **onc
 
 ```bash
 curl -H "Authorization: Bearer sk_live_abc123..." \
-  -X POST http://localhost:8080/api/v1/files \
+  -X POST http://localhost:8080/v1/files \
   -H "Content-Type: image/png" \
   --data-binary @photo.png
 ```

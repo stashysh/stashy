@@ -13,7 +13,7 @@ service StorageService {
   // Upload a file to storage.
   rpc CreateFile(stream CreateFileRequest) returns (CreateFileResponse) {
     option (google.api.http) = {
-      post: "/api/v1/files"
+      post: "/v1/files"
       body: "file"
     };
     option (gnostic.openapi.v3.operation) = {
@@ -40,7 +40,7 @@ service StorageService {
   // Download a file from storage.
   rpc GetFile(GetFileRequest) returns (stream GetFileResponse) {
     option (google.api.http) = {
-      get: "/api/v1/files/{id}"
+      get: "/v1/files/{id}"
       response_body: "file"
     };
     option (gnostic.openapi.v3.operation) = {
@@ -73,7 +73,7 @@ service StorageService {
   // Replace the content of an existing file. Only the owner can update.
   rpc UpdateFile(stream UpdateFileRequest) returns (UpdateFileResponse) {
     option (google.api.http) = {
-      put: "/api/v1/files/{id}"
+      put: "/v1/files/{id}"
       body: "file"
     };
     option (gnostic.openapi.v3.operation) = {
@@ -100,7 +100,7 @@ service StorageService {
   // Make a file publicly accessible.
   rpc PublishFile(PublishFileRequest) returns (PublishFileResponse) {
     option (google.api.http) = {
-      post: "/api/v1/files/{id}/publish"
+      post: "/v1/files/{id}/publish"
       body: "*"
     };
   }
@@ -108,17 +108,14 @@ service StorageService {
   // Remove public access from a file.
   rpc UnpublishFile(UnpublishFileRequest) returns (UnpublishFileResponse) {
     option (google.api.http) = {
-      post: "/api/v1/files/{id}/unpublish"
+      post: "/v1/files/{id}/unpublish"
       body: "*"
     };
   }
 
   // Delete a file. Only the owner can delete.
   rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse) {
-    option (google.api.http) = {
-      delete: "/api/v1/files/{id}"
-      body: "*"
-    };
+    option (google.api.http) = {delete: "/v1/files/{id}"};
   }
 }
 
