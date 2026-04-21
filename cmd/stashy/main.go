@@ -248,7 +248,7 @@ func cmdServe(migrate bool) {
 	if spec, err := os.ReadFile("public/openapi.yaml"); err == nil {
 		spec = bytes.ReplaceAll(spec, []byte("https://stashy.example.com"), []byte(hostname))
 		mux.HandleFunc("GET /openapi.yaml", func(w http.ResponseWriter, _ *http.Request) {
-			w.Header().Set("Content-Type", "application/yaml")
+			w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
 			w.Write(spec)
 		})
 	}
