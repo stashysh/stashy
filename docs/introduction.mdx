@@ -31,10 +31,10 @@ Stashy is a self-hosted file storage service with a multi-protocol API. Upload f
     Visit the dashboard (`/`), sign in with Google, and generate an API key.
   </Step>
   <Step title="Upload a file">
-    `POST /api/v1/files` with your Bearer token. You get back an `id` and a direct `url`. The file is immediately accessible to logged-in users.
+    `POST /v1/files` with your Bearer token. You get back an `id` and a direct `url`. The file is immediately accessible to logged-in users.
   </Step>
   <Step title="Make it public">
-    `POST /api/v1/files/{id}/publish` to share with anyone — no auth required.
+    `POST /v1/files/{id}/publish` to share with anyone — no auth required.
   </Step>
 </Steps>
 

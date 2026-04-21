@@ -82,16 +82,16 @@ stashy help                # print usage
 
 ### API (Bearer token)
 
-All `/api/v1/*` API endpoints require a Bearer token:
+All `/v1/*` API endpoints require a Bearer token:
 
 ```bash
 curl -H "Authorization: Bearer <api-key>" \
-  -X POST http://localhost:8080/api/v1/files \
+  -X POST http://localhost:8080/v1/files \
   -H "Content-Type: image/png" \
   --data-binary @photo.png
 ```
 
-Files are private by default. Use `POST /api/v1/files/{id}/publish` to make a file publicly accessible at `/{id}`. Logged-in users can access any file via direct link.
+Files are private by default. Use `POST /v1/files/{id}/publish` to make a file publicly accessible at `/{id}`. Logged-in users can access any file via direct link.
 
 Set `ALLOWED_DOMAINS` to restrict login to specific email domains.
 
@@ -112,7 +112,7 @@ A single endpoint serves all protocols via [vanguard-go](https://github.com/conn
 
 ```bash
 curl -H "Authorization: Bearer <api-key>" \
-  -X POST http://localhost:8080/api/v1/files \
+  -X POST http://localhost:8080/v1/files \
   -H "Content-Type: image/png" \
   --data-binary @photo.png
 ```
@@ -121,14 +121,14 @@ curl -H "Authorization: Bearer <api-key>" \
 
 ```bash
 curl -H "Authorization: Bearer <api-key>" \
-  http://localhost:8080/api/v1/files/{id}
+  http://localhost:8080/v1/files/{id}
 ```
 
 ### Replace a file
 
 ```bash
 curl -H "Authorization: Bearer <api-key>" \
-  -X PUT http://localhost:8080/api/v1/files/{id} \
+  -X PUT http://localhost:8080/v1/files/{id} \
   -H "Content-Type: image/png" \
   --data-binary @photo-v2.png
 ```
@@ -139,7 +139,7 @@ Only the file owner can replace it.
 
 ```bash
 curl -H "Authorization: Bearer <api-key>" \
-  -X DELETE http://localhost:8080/api/v1/files/{id}
+  -X DELETE http://localhost:8080/v1/files/{id}
 ```
 
 Only the file owner can delete it.
@@ -148,14 +148,14 @@ Only the file owner can delete it.
 
 ```bash
 curl -H "Authorization: Bearer <api-key>" \
-  -X POST http://localhost:8080/api/v1/files/{id}/publish
+  -X POST http://localhost:8080/v1/files/{id}/publish
 ```
 
 ### Unpublish a file
 
 ```bash
 curl -H "Authorization: Bearer <api-key>" \
-  -X POST http://localhost:8080/api/v1/files/{id}/unpublish
+  -X POST http://localhost:8080/v1/files/{id}/unpublish
 ```
 
 ## File access

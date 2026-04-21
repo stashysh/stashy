@@ -31,13 +31,13 @@ func (s *StorageService) ServeFile(w http.ResponseWriter, r *http.Request, id st
 	}
 }
 
-// HTTPDownload handles GET /api/v1/files/{id} directly, bypassing Vanguard.
+// HTTPDownload handles GET /v1/files/{id} directly, bypassing Vanguard.
 // Auth is expected to be enforced by upstream middleware.
 func (s *StorageService) HTTPDownload(w http.ResponseWriter, r *http.Request) {
 	s.ServeFile(w, r, r.PathValue("id"))
 }
 
-// HTTPUpload handles POST /api/v1/files directly, bypassing Vanguard.
+// HTTPUpload handles POST /v1/files directly, bypassing Vanguard.
 // Streaming r.Body straight to storage avoids the full-body buffering that
 // Vanguard does when transcoding HttpBody RPCs (see github.com/stashysh/stashy/issues/23).
 func (s *StorageService) HTTPUpload(w http.ResponseWriter, r *http.Request) {
@@ -63,7 +63,7 @@ func (s *StorageService) HTTPUpload(w http.ResponseWriter, r *http.Request) {
 	}{ID: meta.ID, URL: s.hostname + "/" + meta.ID})
 }
 
-// HTTPReplace handles PUT /api/v1/files/{id} directly, bypassing Vanguard.
+// HTTPReplace handles PUT /v1/files/{id} directly, bypassing Vanguard.
 func (s *StorageService) HTTPReplace(w http.ResponseWriter, r *http.Request) {
 	owner, ok := auth.UserIDFromContext(r.Context())
 	if !ok {

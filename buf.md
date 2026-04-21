@@ -8,12 +8,12 @@ File storage service with multi-protocol API (gRPC, gRPC-Web, Connect, REST).
 
 | RPC | Method | Path |
 |---|---|---|
-| `CreateFile` | `POST` | `/api/v1/files` |
-| `GetFile` | `GET` | `/api/v1/files/{id}` |
-| `UpdateFile` | `PUT` | `/api/v1/files/{id}` |
-| `DeleteFile` | `DELETE` | `/api/v1/files/{id}` |
-| `PublishFile` | `POST` | `/api/v1/files/{id}/publish` |
-| `UnpublishFile` | `POST` | `/api/v1/files/{id}/unpublish` |
+| `CreateFile` | `POST` | `/v1/files` |
+| `GetFile` | `GET` | `/v1/files/{id}` |
+| `UpdateFile` | `PUT` | `/v1/files/{id}` |
+| `DeleteFile` | `DELETE` | `/v1/files/{id}` |
+| `PublishFile` | `POST` | `/v1/files/{id}/publish` |
+| `UnpublishFile` | `POST` | `/v1/files/{id}/unpublish` |
 
 ## Links
 
