@@ -49,6 +49,32 @@ func (s *Storage) Put(ctx context.Context, owner, contentType string, r io.Reade
 	}, nil
 }
 
+func (s *Storage) Stat(ctx context.Context, id string) (*storage.FileMeta, error) {
+	out, err := s.client.HeadObject(ctx, &s3.HeadObjectInput{
+		Bucket: &s.bucket,
+		Key:    &id,
+	})
+	if err != nil {
+		if isNotFound(err) {
+			return nil, fmt.Errorf("file not found: %s", id)
+		}
+		return nil, fmt.Errorf("heading object: %w", err)
+	}
+
+	var size int64
+	if out.ContentLength != nil {
+		size = *out.ContentLength
+	}
+
+	return &storage.FileMeta{
+		ID:          id,
+		Owner:       out.Metadata["owner"],
+		ContentType: aws.ToString(out.ContentType),
+		Size:        size,
+		Public:      out.Metadata["public"] == "true",
+	}, nil
+}
+
 func (s *Storage) Get(ctx context.Context, id string) (io.ReadCloser, *storage.FileMeta, error) {
 	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: &s.bucket,
@@ -73,6 +99,25 @@ func (s *Storage) Get(ctx context.Context, id string) (io.ReadCloser, *storage.F
 		Size:        size,
 		Public:      out.Metadata["public"] == "true",
 	}, nil
+}
+
+func (s *Storage) GetRange(ctx context.Context, id string, start, length int64) (io.ReadCloser, error) {
+	end := start + length - 1
+	rangeHeader := fmt.Sprintf("bytes=%d-%d", start, end)
+
+	out, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: &s.bucket,
+		Key:    &id,
+		Range:  &rangeHeader,
+	})
+	if err != nil {
+		if isNotFound(err) {
+			return nil, fmt.Errorf("file not found: %s", id)
+		}
+		return nil, fmt.Errorf("getting object range: %w", err)
+	}
+
+	return out.Body, nil
 }
 
 func (s *Storage) Update(ctx context.Context, id, owner, contentType string, r io.Reader) (*storage.FileMeta, error) {

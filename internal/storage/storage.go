@@ -26,8 +26,14 @@ type Storage interface {
 	// Put stores data and returns metadata about the created file.
 	Put(ctx context.Context, owner, contentType string, r io.Reader) (*FileMeta, error)
 
+	// Stat retrieves file metadata by ID without opening the file body.
+	Stat(ctx context.Context, id string) (*FileMeta, error)
+
 	// Get retrieves a file by ID. The caller must close the returned ReadCloser.
 	Get(ctx context.Context, id string) (io.ReadCloser, *FileMeta, error)
+
+	// GetRange retrieves a byte range by ID. The caller must close the returned ReadCloser.
+	GetRange(ctx context.Context, id string, start, length int64) (io.ReadCloser, error)
 
 	// Update replaces the content of an existing file. Returns error if not found or not owned.
 	Update(ctx context.Context, id, owner, contentType string, r io.Reader) (*FileMeta, error)

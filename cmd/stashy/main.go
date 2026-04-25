@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -86,7 +85,7 @@ func openDB() (*db.DB, error) {
 	return db.New(context.Background(), driverFromDSN(dsn), dsn)
 }
 
-func fileHandler(store storage.Storage, sessions *auth.SessionManager) http.HandlerFunc {
+func fileHandler(storage storage.Storage, service *service.StorageService, sessions *auth.SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if id == "" {
@@ -94,8 +93,7 @@ func fileHandler(store storage.Storage, sessions *auth.SessionManager) http.Hand
 			return
 		}
 
-		// Fetch meta to check public access before streaming.
-		rc, meta, err := store.Get(r.Context(), id)
+		meta, err := storage.Stat(r.Context(), id)
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
 				http.NotFound(w, r)
@@ -105,7 +103,6 @@ func fileHandler(store storage.Storage, sessions *auth.SessionManager) http.Hand
 			http.Error(w, "internal error", http.StatusInternalServerError)
 			return
 		}
-		defer rc.Close()
 
 		if !meta.Public {
 			if _, ok := sessions.GetUserID(r); !ok {
@@ -114,10 +111,7 @@ func fileHandler(store storage.Storage, sessions *auth.SessionManager) http.Hand
 			}
 		}
 
-		w.Header().Set("Content-Type", meta.ContentType)
-		if _, err := io.Copy(w, rc); err != nil {
-			log.Printf("fileHandler %s: copy: %v", id, err)
-		}
+		service.ServeFile(w, r, id)
 	}
 }
 
@@ -264,7 +258,7 @@ func cmdServe(migrate bool) {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.Handle("GET /{$}", webUI)
-	mux.HandleFunc("GET /{id}", fileHandler(store, sessions))
+	mux.HandleFunc("GET /{id}", fileHandler(store, svc, sessions))
 
 	addr := ":" + port
 	log.Printf("listening on %s", addr)

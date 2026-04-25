@@ -27,6 +27,16 @@ func New() *Storage {
 	return &Storage{files: make(map[string]*file)}
 }
 
+func fileMeta(id string, f *file) *storage.FileMeta {
+	return &storage.FileMeta{
+		ID:          id,
+		Owner:       f.owner,
+		ContentType: f.contentType,
+		Size:        int64(len(f.data)),
+		Public:      f.public,
+	}
+}
+
 func (s *Storage) Put(_ context.Context, owner, contentType string, r io.Reader) (*storage.FileMeta, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
@@ -50,6 +60,18 @@ func (s *Storage) Put(_ context.Context, owner, contentType string, r io.Reader)
 	}, nil
 }
 
+func (s *Storage) Stat(_ context.Context, id string) (*storage.FileMeta, error) {
+	s.mu.RLock()
+	f, ok := s.files[id]
+	s.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("file not found: %s", id)
+	}
+
+	return fileMeta(id, f), nil
+}
+
 func (s *Storage) Get(_ context.Context, id string) (io.ReadCloser, *storage.FileMeta, error) {
 	s.mu.RLock()
 	f, ok := s.files[id]
@@ -59,13 +81,24 @@ func (s *Storage) Get(_ context.Context, id string) (io.ReadCloser, *storage.Fil
 		return nil, nil, fmt.Errorf("file not found: %s", id)
 	}
 
-	return io.NopCloser(bytes.NewReader(f.data)), &storage.FileMeta{
-		ID:          id,
-		Owner:       f.owner,
-		ContentType: f.contentType,
-		Size:        int64(len(f.data)),
-		Public:      f.public,
-	}, nil
+	return io.NopCloser(bytes.NewReader(f.data)), fileMeta(id, f), nil
+}
+
+func (s *Storage) GetRange(_ context.Context, id string, start, length int64) (io.ReadCloser, error) {
+	s.mu.RLock()
+	f, ok := s.files[id]
+	s.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("file not found: %s", id)
+	}
+
+	end := start + length
+	if end > int64(len(f.data)) {
+		end = int64(len(f.data))
+	}
+
+	return io.NopCloser(bytes.NewReader(f.data[start:end])), nil
 }
 
 func (s *Storage) Update(_ context.Context, id, owner, contentType string, r io.Reader) (*storage.FileMeta, error) {
