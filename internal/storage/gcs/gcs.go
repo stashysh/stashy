@@ -48,6 +48,24 @@ func (s *Storage) Put(ctx context.Context, owner, contentType string, r io.Reade
 	}, nil
 }
 
+func (s *Storage) Stat(ctx context.Context, id string) (*storage.FileMeta, error) {
+	attrs, err := s.bucket.Object(id).Attrs(ctx)
+	if err != nil {
+		if errors.Is(err, gcstorage.ErrObjectNotExist) {
+			return nil, fmt.Errorf("file not found: %s", id)
+		}
+		return nil, fmt.Errorf("getting object attrs: %w", err)
+	}
+
+	return &storage.FileMeta{
+		ID:          id,
+		Owner:       attrs.Metadata["owner"],
+		ContentType: attrs.ContentType,
+		Size:        attrs.Size,
+		Public:      attrs.Metadata["public"] == "true",
+	}, nil
+}
+
 func (s *Storage) Get(ctx context.Context, id string) (io.ReadCloser, *storage.FileMeta, error) {
 	obj := s.bucket.Object(id)
 
@@ -71,6 +89,17 @@ func (s *Storage) Get(ctx context.Context, id string) (io.ReadCloser, *storage.F
 		Size:        attrs.Size,
 		Public:      attrs.Metadata["public"] == "true",
 	}, nil
+}
+
+func (s *Storage) GetRange(ctx context.Context, id string, start, length int64) (io.ReadCloser, error) {
+	r, err := s.bucket.Object(id).NewRangeReader(ctx, start, length)
+	if err != nil {
+		if errors.Is(err, gcstorage.ErrObjectNotExist) {
+			return nil, fmt.Errorf("file not found: %s", id)
+		}
+		return nil, fmt.Errorf("opening GCS range reader: %w", err)
+	}
+	return r, nil
 }
 
 func (s *Storage) Update(ctx context.Context, id, owner, contentType string, r io.Reader) (*storage.FileMeta, error) {

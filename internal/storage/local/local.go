@@ -78,19 +78,34 @@ func (s *Storage) Put(_ context.Context, owner, contentType string, r io.Reader)
 	}, nil
 }
 
-func (s *Storage) Get(_ context.Context, id string) (io.ReadCloser, *storage.FileMeta, error) {
+func (s *Storage) Stat(_ context.Context, id string) (*storage.FileMeta, error) {
 	mf, err := os.Open(s.metaPath(id))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, nil, fmt.Errorf("file not found: %s", id)
+			return nil, fmt.Errorf("file not found: %s", id)
 		}
-		return nil, nil, fmt.Errorf("reading meta: %w", err)
+		return nil, fmt.Errorf("reading meta: %w", err)
 	}
 	defer mf.Close()
 
 	var m meta
 	if err := json.NewDecoder(mf).Decode(&m); err != nil {
-		return nil, nil, fmt.Errorf("decoding meta: %w", err)
+		return nil, fmt.Errorf("decoding meta: %w", err)
+	}
+
+	return &storage.FileMeta{
+		ID:          id,
+		Owner:       m.Owner,
+		ContentType: m.ContentType,
+		Size:        m.Size,
+		Public:      m.Public,
+	}, nil
+}
+
+func (s *Storage) Get(ctx context.Context, id string) (io.ReadCloser, *storage.FileMeta, error) {
+	meta, err := s.Stat(ctx, id)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	f, err := os.Open(s.dataPath(id))
@@ -98,13 +113,23 @@ func (s *Storage) Get(_ context.Context, id string) (io.ReadCloser, *storage.Fil
 		return nil, nil, fmt.Errorf("opening file: %w", err)
 	}
 
-	return f, &storage.FileMeta{
-		ID:          id,
-		Owner:       m.Owner,
-		ContentType: m.ContentType,
-		Size:        m.Size,
-		Public:      m.Public,
-	}, nil
+	return f, meta, nil
+}
+
+func (s *Storage) GetRange(_ context.Context, id string, start, _ int64) (io.ReadCloser, error) {
+	f, err := os.Open(s.dataPath(id))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("file not found: %s", id)
+		}
+		return nil, fmt.Errorf("opening file: %w", err)
+	}
+	if _, err := f.Seek(start, io.SeekStart); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("seeking file: %w", err)
+	}
+
+	return f, nil
 }
 
 func (s *Storage) Update(_ context.Context, id, owner, contentType string, r io.Reader) (*storage.FileMeta, error) {
