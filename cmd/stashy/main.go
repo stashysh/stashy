@@ -81,7 +81,7 @@ func driverFromDSN(dsn string) string {
 }
 
 func openDB() (*db.DB, error) {
-	dsn := env("DB_DSN", "file:stashy.db")
+	dsn := env("DATABASE_URL", env("DB_DSN", "file:stashy.db"))
 	return db.New(context.Background(), driverFromDSN(dsn), dsn)
 }
 

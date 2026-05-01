@@ -38,7 +38,7 @@ docker compose up
 |---|---|---|
 | `PORT` | Server listen port | `8080` |
 | `HOSTNAME` | Public base URL | `http://localhost:$PORT` |
-| `DB_DSN` | Database connection string (see below) | `file:stashy.db` |
+| `DATABASE_URL` | Database connection string (see below) | `file:stashy.db` |
 | `STORAGE_BACKEND` | Storage backend: `memory`, `local`, `gcs`, or `s3` | `memory` |
 | `LOCAL_STORAGE_DIR` | Directory for local file storage | `./storage` |
 | `GCS_BUCKET` | GCS bucket name (required when `STORAGE_BACKEND=gcs`) | — |
