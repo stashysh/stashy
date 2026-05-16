@@ -207,8 +207,12 @@ func cmdServe(migrate bool) {
 	svc := service.New(store, hostname)
 	path, handler := stashyv1alpha1connect.NewStorageServiceHandler(svc)
 
+	restOpts := vanguard.WithRESTUnmarshalOptions(vanguard.RESTUnmarshalOptions{
+		DiscardUnknownQueryParams: true,
+	})
+
 	transcoder, err := vanguard.NewTranscoder([]*vanguard.Service{
-		vanguard.NewService(path, handler),
+		vanguard.NewService(path, handler, restOpts),
 	},
 		vanguard.WithCodec(func(res vanguard.TypeResolver) vanguard.Codec {
 			codec := vanguard.NewJSONCodec(res)
