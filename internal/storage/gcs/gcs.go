@@ -213,11 +213,10 @@ func (s *Storage) SetSlug(ctx context.Context, id, owner, slug string) error {
 		meta = make(map[string]string)
 	}
 
-	if slug == "" {
-		delete(meta, "slug")
-	} else {
-		meta["slug"] = slug
-	}
+	// A GCS metadata PATCH merges keys, so deleting "slug" from the map would
+	// leave the old value in place. Store the value directly instead; an empty
+	// string reads back as no slug. Same approach as SetPublic.
+	meta["slug"] = slug
 
 	if _, err := obj.Update(ctx, gcstorage.ObjectAttrsToUpdate{Metadata: meta}); err != nil {
 		return fmt.Errorf("updating object metadata: %w", err)
