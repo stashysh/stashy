@@ -167,7 +167,9 @@ message UpdateFileRequest {
 
 message UpdateFileResponse {
   // Canonical URL of the file after the update.
-  string url = 1 [(buf.validate.field) = {string: {uri: true}}];
+  string url = 1 [(buf.validate.field) = {
+    string: {uri: true}
+  }];
 }
 
 message DeleteFileRequest {

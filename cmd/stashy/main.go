@@ -87,7 +87,7 @@ func openDB() (*db.DB, error) {
 	return db.New(context.Background(), driverFromDSN(dsn), dsn)
 }
 
-func fileHandler(storage storage.Storage, service *service.StorageService, sessions *auth.SessionManager) http.HandlerFunc {
+func fileHandler(store storage.Storage, service *service.StorageService, sessions *auth.SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if id == "" {
@@ -95,7 +95,7 @@ func fileHandler(storage storage.Storage, service *service.StorageService, sessi
 			return
 		}
 
-		meta, err := storage.Stat(r.Context(), id)
+		meta, err := store.Stat(r.Context(), id)
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
 				http.NotFound(w, r)
@@ -113,8 +113,30 @@ func fileHandler(storage storage.Storage, service *service.StorageService, sessi
 			}
 		}
 
+		switch urlSlug := r.PathValue("slug"); {
+		case urlSlug == meta.Slug:
+			// Exact match, including bare /{id} for a file with no slug: serve.
+		case urlSlug == "":
+			// Bare /{id} for a file that has a slug: redirect to the canonical URL.
+			http.Redirect(w, r, canonicalPath(meta), http.StatusFound)
+			return
+		default:
+			// Any other slug is not a valid URL for this file.
+			http.NotFound(w, r)
+			return
+		}
+
 		service.ServeFile(w, r, id)
 	}
+}
+
+// canonicalPath is the canonical access path for a file: /{id}/{slug}, or
+// /{id} when it has no slug.
+func canonicalPath(meta *storage.FileMeta) string {
+	if meta.Slug != "" {
+		return "/" + meta.ID + "/" + meta.Slug
+	}
+	return "/" + meta.ID
 }
 
 var usage = "Usage: stashy " + Version + ` <command>
@@ -266,6 +288,7 @@ func cmdServe(migrate bool) {
 	})
 	mux.Handle("GET /{$}", webUI)
 	mux.HandleFunc("GET /{id}", fileHandler(store, svc, sessions))
+	mux.HandleFunc("GET /{id}/{slug}", fileHandler(store, svc, sessions))
 
 	addr := ":" + port
 	log.Printf("listening on %s", addr)
