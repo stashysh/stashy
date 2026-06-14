@@ -10,6 +10,8 @@ import (
 	"strings"
 
 	gcstorage "cloud.google.com/go/storage"
+	"connectrpc.com/connect"
+	"connectrpc.com/validate"
 	"connectrpc.com/vanguard"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
@@ -205,7 +207,7 @@ func cmdServe(migrate bool) {
 	apiKeys := auth.NewAPIKeyHandler(database, sessions)
 
 	svc := service.New(store, hostname)
-	path, handler := stashyv1alpha1connect.NewStorageServiceHandler(svc)
+	path, handler := stashyv1alpha1connect.NewStorageServiceHandler(svc, connect.WithInterceptors(validate.NewInterceptor()))
 
 	restOpts := vanguard.WithRESTUnmarshalOptions(vanguard.RESTUnmarshalOptions{
 		DiscardUnknownQueryParams: true,

@@ -16,6 +16,7 @@ type meta struct {
 	ContentType string `json:"content_type"`
 	Size        int64  `json:"size"`
 	Public      bool   `json:"public"`
+	Slug        string `json:"slug,omitempty"`
 }
 
 // Storage stores files on the local filesystem.
@@ -99,6 +100,7 @@ func (s *Storage) Stat(_ context.Context, id string) (*storage.FileMeta, error) 
 		ContentType: m.ContentType,
 		Size:        m.Size,
 		Public:      m.Public,
+		Slug:        m.Slug,
 	}, nil
 }
 
@@ -182,6 +184,7 @@ func (s *Storage) Update(_ context.Context, id, owner, contentType string, r io.
 		ContentType: contentType,
 		Size:        n,
 		Public:      m.Public,
+		Slug:        m.Slug,
 	}, nil
 }
 
@@ -227,6 +230,37 @@ func (s *Storage) SetPublic(_ context.Context, id string, public bool) error {
 	mf.Close()
 
 	m.Public = public
+
+	wf, err := os.Create(s.metaPath(id))
+	if err != nil {
+		return fmt.Errorf("writing meta: %w", err)
+	}
+	defer wf.Close()
+
+	return json.NewEncoder(wf).Encode(&m)
+}
+
+func (s *Storage) SetSlug(_ context.Context, id, owner, slug string) error {
+	mf, err := os.Open(s.metaPath(id))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("file not found: %s", id)
+		}
+		return fmt.Errorf("reading meta: %w", err)
+	}
+
+	var m meta
+	if err := json.NewDecoder(mf).Decode(&m); err != nil {
+		mf.Close()
+		return fmt.Errorf("decoding meta: %w", err)
+	}
+	mf.Close()
+
+	if m.Owner != owner {
+		return fmt.Errorf("permission denied")
+	}
+
+	m.Slug = slug
 
 	wf, err := os.Create(s.metaPath(id))
 	if err != nil {

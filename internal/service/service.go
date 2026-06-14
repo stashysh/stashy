@@ -39,6 +39,27 @@ func validateContentType(ct string) (string, error) {
 	return ct, nil
 }
 
+// storageError maps a storage-layer error to the appropriate connect code.
+func storageError(err error) error {
+	switch {
+	case strings.Contains(err.Error(), "not found"):
+		return connect.NewError(connect.CodeNotFound, err)
+	case strings.Contains(err.Error(), "permission denied"):
+		return connect.NewError(connect.CodePermissionDenied, err)
+	default:
+		return connect.NewError(connect.CodeInternal, err)
+	}
+}
+
+// canonicalURL builds the canonical public URL for a file, including its slug
+// when set.
+func (s *StorageService) canonicalURL(meta *storage.FileMeta) string {
+	if meta.Slug != "" {
+		return s.hostname + "/" + meta.ID + "/" + meta.Slug
+	}
+	return s.hostname + "/" + meta.ID
+}
+
 func (s *StorageService) CreateFile(
 	ctx context.Context,
 	stream *connect.ClientStream[stashyv1alpha1.CreateFileRequest],
@@ -116,10 +137,10 @@ func (s *StorageService) CreateFile(
 	}), nil
 }
 
-func (s *StorageService) UpdateFile(
+func (s *StorageService) ReplaceFile(
 	ctx context.Context,
-	stream *connect.ClientStream[stashyv1alpha1.UpdateFileRequest],
-) (*connect.Response[stashyv1alpha1.UpdateFileResponse], error) {
+	stream *connect.ClientStream[stashyv1alpha1.ReplaceFileRequest],
+) (*connect.Response[stashyv1alpha1.ReplaceFileResponse], error) {
 	owner, ok := auth.UserIDFromContext(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
@@ -197,7 +218,40 @@ func (s *StorageService) UpdateFile(
 		return nil, connect.NewError(connect.CodeInternal, updateResult.err)
 	}
 
-	return connect.NewResponse(&stashyv1alpha1.UpdateFileResponse{}), nil
+	return connect.NewResponse(&stashyv1alpha1.ReplaceFileResponse{}), nil
+}
+
+// UpdateFile updates a file's mutable fields. Currently only the slug.
+func (s *StorageService) UpdateFile(
+	ctx context.Context,
+	req *connect.Request[stashyv1alpha1.UpdateFileRequest],
+) (*connect.Response[stashyv1alpha1.UpdateFileResponse], error) {
+	owner, ok := auth.UserIDFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+	}
+
+	id := req.Msg.Id
+	if id == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("file id is required"))
+	}
+
+	// A nil slug means "leave unchanged"; an empty string clears it. The slug
+	// format is enforced by the protovalidate interceptor.
+	if req.Msg.Slug != nil {
+		if err := s.store.SetSlug(ctx, id, owner, *req.Msg.Slug); err != nil {
+			return nil, storageError(err)
+		}
+	}
+
+	meta, err := s.store.Stat(ctx, id)
+	if err != nil {
+		return nil, storageError(err)
+	}
+
+	return connect.NewResponse(&stashyv1alpha1.UpdateFileResponse{
+		Url: s.canonicalURL(meta),
+	}), nil
 }
 
 func (s *StorageService) DeleteFile(

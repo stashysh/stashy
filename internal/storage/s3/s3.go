@@ -72,6 +72,7 @@ func (s *Storage) Stat(ctx context.Context, id string) (*storage.FileMeta, error
 		ContentType: aws.ToString(out.ContentType),
 		Size:        size,
 		Public:      out.Metadata["public"] == "true",
+		Slug:        out.Metadata["slug"],
 	}, nil
 }
 
@@ -98,6 +99,7 @@ func (s *Storage) Get(ctx context.Context, id string) (io.ReadCloser, *storage.F
 		ContentType: aws.ToString(out.ContentType),
 		Size:        size,
 		Public:      out.Metadata["public"] == "true",
+		Slug:        out.Metadata["slug"],
 	}, nil
 }
 
@@ -146,6 +148,7 @@ func (s *Storage) Update(ctx context.Context, id, owner, contentType string, r i
 		Owner:       owner,
 		ContentType: contentType,
 		Public:      meta["public"] == "true",
+		Slug:        meta["slug"],
 	}, nil
 }
 
@@ -181,19 +184,45 @@ func (s *Storage) SetPublic(ctx context.Context, id string, public bool) error {
 		delete(meta, "public")
 	}
 
-	// S3 requires a copy-in-place to update metadata.
+	if err := s.copyWithMetadata(ctx, id, meta); err != nil {
+		return fmt.Errorf("updating object metadata: %w", err)
+	}
+	return nil
+}
+
+func (s *Storage) SetSlug(ctx context.Context, id, owner, slug string) error {
+	meta, err := s.headObject(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if meta["owner"] != owner {
+		return fmt.Errorf("permission denied")
+	}
+
+	if slug == "" {
+		delete(meta, "slug")
+	} else {
+		meta["slug"] = slug
+	}
+
+	if err := s.copyWithMetadata(ctx, id, meta); err != nil {
+		return fmt.Errorf("updating object metadata: %w", err)
+	}
+	return nil
+}
+
+// copyWithMetadata replaces an object's metadata via an S3 copy-in-place.
+func (s *Storage) copyWithMetadata(ctx context.Context, id string, meta map[string]string) error {
 	src := s.bucket + "/" + id
-	_, err = s.client.CopyObject(ctx, &s3.CopyObjectInput{
+	_, err := s.client.CopyObject(ctx, &s3.CopyObjectInput{
 		Bucket:            &s.bucket,
 		Key:               &id,
 		CopySource:        &src,
 		Metadata:          meta,
 		MetadataDirective: types.MetadataDirectiveReplace,
 	})
-	if err != nil {
-		return fmt.Errorf("updating object metadata: %w", err)
-	}
-	return nil
+	return err
 }
 
 func (s *Storage) headObject(ctx context.Context, id string) (map[string]string, error) {

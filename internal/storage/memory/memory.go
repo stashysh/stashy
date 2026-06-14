@@ -15,6 +15,7 @@ type file struct {
 	owner       string
 	contentType string
 	public      bool
+	slug        string
 }
 
 // Storage is an in-memory storage backend. Useful for development and testing.
@@ -34,6 +35,7 @@ func fileMeta(id string, f *file) *storage.FileMeta {
 		ContentType: f.contentType,
 		Size:        int64(len(f.data)),
 		Public:      f.public,
+		Slug:        f.slug,
 	}
 }
 
@@ -121,13 +123,7 @@ func (s *Storage) Update(_ context.Context, id, owner, contentType string, r io.
 	f.data = data
 	f.contentType = contentType
 
-	return &storage.FileMeta{
-		ID:          id,
-		Owner:       owner,
-		ContentType: contentType,
-		Size:        int64(len(data)),
-		Public:      f.public,
-	}, nil
+	return fileMeta(id, f), nil
 }
 
 func (s *Storage) Delete(_ context.Context, id, owner string) error {
@@ -154,5 +150,20 @@ func (s *Storage) SetPublic(_ context.Context, id string, public bool) error {
 		return fmt.Errorf("file not found: %s", id)
 	}
 	f.public = public
+	return nil
+}
+
+func (s *Storage) SetSlug(_ context.Context, id, owner, slug string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	f, ok := s.files[id]
+	if !ok {
+		return fmt.Errorf("file not found: %s", id)
+	}
+	if f.owner != owner {
+		return fmt.Errorf("permission denied")
+	}
+	f.slug = slug
 	return nil
 }

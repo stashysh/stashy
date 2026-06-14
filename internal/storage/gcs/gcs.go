@@ -63,6 +63,7 @@ func (s *Storage) Stat(ctx context.Context, id string) (*storage.FileMeta, error
 		ContentType: attrs.ContentType,
 		Size:        attrs.Size,
 		Public:      attrs.Metadata["public"] == "true",
+		Slug:        attrs.Metadata["slug"],
 	}, nil
 }
 
@@ -88,6 +89,7 @@ func (s *Storage) Get(ctx context.Context, id string) (io.ReadCloser, *storage.F
 		ContentType: attrs.ContentType,
 		Size:        attrs.Size,
 		Public:      attrs.Metadata["public"] == "true",
+		Slug:        attrs.Metadata["slug"],
 	}, nil
 }
 
@@ -137,6 +139,7 @@ func (s *Storage) Update(ctx context.Context, id, owner, contentType string, r i
 		ContentType: contentType,
 		Size:        n,
 		Public:      attrs.Metadata["public"] == "true",
+		Slug:        attrs.Metadata["slug"],
 	}, nil
 }
 
@@ -185,6 +188,38 @@ func (s *Storage) SetPublic(ctx context.Context, id string, public bool) error {
 
 	_, err = obj.Update(ctx, gcstorage.ObjectAttrsToUpdate{Metadata: meta})
 	if err != nil {
+		return fmt.Errorf("updating object metadata: %w", err)
+	}
+	return nil
+}
+
+func (s *Storage) SetSlug(ctx context.Context, id, owner, slug string) error {
+	obj := s.bucket.Object(id)
+
+	attrs, err := obj.Attrs(ctx)
+	if err != nil {
+		if errors.Is(err, gcstorage.ErrObjectNotExist) {
+			return fmt.Errorf("file not found: %s", id)
+		}
+		return fmt.Errorf("getting object attrs: %w", err)
+	}
+
+	if attrs.Metadata["owner"] != owner {
+		return fmt.Errorf("permission denied")
+	}
+
+	meta := attrs.Metadata
+	if meta == nil {
+		meta = make(map[string]string)
+	}
+
+	if slug == "" {
+		delete(meta, "slug")
+	} else {
+		meta["slug"] = slug
+	}
+
+	if _, err := obj.Update(ctx, gcstorage.ObjectAttrsToUpdate{Metadata: meta}); err != nil {
 		return fmt.Errorf("updating object metadata: %w", err)
 	}
 	return nil

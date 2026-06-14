@@ -19,6 +19,7 @@ type FileMeta struct {
 	ContentType string
 	Size        int64
 	Public      bool
+	Slug        string
 }
 
 // Storage is the abstraction over file storage backends (memory, S3, GCS, etc.).
@@ -43,4 +44,8 @@ type Storage interface {
 
 	// SetPublic sets the public visibility of a file.
 	SetPublic(ctx context.Context, id string, public bool) error
+
+	// SetSlug sets the file's slug, or clears it when slug is empty.
+	// Returns error if not found or not owned.
+	SetSlug(ctx context.Context, id, owner, slug string) error
 }
