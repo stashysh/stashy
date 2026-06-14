@@ -29,7 +29,6 @@ func TestFileHandlerServesPublicByteRangesThroughStorageRange(t *testing.T) {
 	handler := fileHandler(store, files, auth.NewSessionManager("test-secret"))
 
 	req := httptest.NewRequest(http.MethodGet, "/"+meta.ID, nil)
-	req.SetPathValue("id", meta.ID)
 	req.Header.Set("Range", "bytes=2-5")
 	rec := httptest.NewRecorder()
 
@@ -67,7 +66,6 @@ func TestFileHandlerHeadDoesNotOpenBody(t *testing.T) {
 	handler := fileHandler(store, files, auth.NewSessionManager("test-secret"))
 
 	req := httptest.NewRequest(http.MethodHead, "/"+meta.ID, nil)
-	req.SetPathValue("id", meta.ID)
 	rec := httptest.NewRecorder()
 
 	handler(rec, req)
@@ -83,6 +81,60 @@ func TestFileHandlerHeadDoesNotOpenBody(t *testing.T) {
 	}
 	if store.getRangeCalls != 0 {
 		t.Fatalf("GetRange calls = %d, want 0", store.getRangeCalls)
+	}
+}
+
+func TestFileHandlerCanonicalizesSlug(t *testing.T) {
+	store := memory.New()
+	meta, err := store.Put(t.Context(), "user-1", "text/plain", strings.NewReader("hello"))
+	if err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	if err := store.SetPublic(t.Context(), meta.ID, true); err != nil {
+		t.Fatalf("SetPublic: %v", err)
+	}
+	if err := store.SetSlug(t.Context(), meta.ID, "user-1", "my-photo"); err != nil {
+		t.Fatalf("SetSlug: %v", err)
+	}
+
+	files := service.New(store, "http://example.test")
+	handler := fileHandler(store, files, auth.NewSessionManager("test-secret"))
+
+	canonical := "/" + meta.ID + "/my-photo"
+
+	cases := []struct {
+		name     string
+		urlSlug  string // "" means request /{id} with no slug segment
+		wantCode int
+		wantLoc  string
+		wantBody string
+	}{
+		{"bare id redirects to slug", "", http.StatusFound, canonical, ""},
+		{"correct slug serves", "my-photo", http.StatusOK, "", "hello"},
+		{"wrong slug is not found", "old-name", http.StatusNotFound, "", ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := "/" + meta.ID
+			if tc.urlSlug != "" {
+				path += "/" + tc.urlSlug
+			}
+			req := httptest.NewRequest(http.MethodGet, path, nil)
+			rec := httptest.NewRecorder()
+
+			handler(rec, req)
+
+			if rec.Code != tc.wantCode {
+				t.Fatalf("status = %d, want %d", rec.Code, tc.wantCode)
+			}
+			if got := rec.Header().Get("Location"); got != tc.wantLoc {
+				t.Fatalf("Location = %q, want %q", got, tc.wantLoc)
+			}
+			if tc.wantBody != "" && rec.Body.String() != tc.wantBody {
+				t.Fatalf("body = %q, want %q", rec.Body.String(), tc.wantBody)
+			}
+		})
 	}
 }
 

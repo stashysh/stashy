@@ -135,6 +135,18 @@ curl -H "Authorization: Bearer <api-key>" \
 
 Only the file owner can replace it.
 
+### Update a file
+
+```bash
+curl -H "Authorization: Bearer <api-key>" \
+  -X PATCH http://localhost:8080/v1/files/{id} \
+  -H "Content-Type: application/json" \
+  -d '{"slug": "my-photo"}'
+```
+
+Updates a file's fields. Currently supports `slug`, a human-readable name;
+send `{"slug": ""}` to clear it. Only the file owner can update it.
+
 ### Delete a file
 
 ```bash
@@ -166,6 +178,9 @@ curl http://localhost:8080/{id}
 
 Published files are accessible to anyone. Private files require a login session.
 Ideal for CDN or subdomain mapping (e.g., `cdn.example.com/{id}`).
+
+If a file has a slug, its canonical URL is `/{id}/{slug}` and `/{id}` redirects
+there. `/{id}` always works as the stable link; a wrong slug returns 404.
 
 ## Storage backends
 

@@ -71,7 +71,7 @@ service StorageService {
   }
 
   // Replace the content of an existing file. Only the owner can update.
-  rpc UpdateFile(stream UpdateFileRequest) returns (UpdateFileResponse) {
+  rpc ReplaceFile(stream ReplaceFileRequest) returns (ReplaceFileResponse) {
     option (google.api.http) = {
       put: "/v1/files/{id}"
       body: "file"
@@ -94,6 +94,15 @@ service StorageService {
           }
         }
       }
+    };
+  }
+
+  // Update a file. Only the owner can update. Fields are optional: an absent
+  // field is left unchanged, an empty value clears it.
+  rpc UpdateFile(UpdateFileRequest) returns (UpdateFileResponse) {
+    option (google.api.http) = {
+      patch: "/v1/files/{id}"
+      body: "*"
     };
   }
 
@@ -139,12 +148,29 @@ message GetFileResponse {
   google.api.HttpBody file = 1 [(buf.validate.field).required = true];
 }
 
-message UpdateFileRequest {
+message ReplaceFileRequest {
   string id = 1 [(buf.validate.field).required = true];
   google.api.HttpBody file = 2 [(buf.validate.field).required = true];
 }
 
-message UpdateFileResponse {}
+message ReplaceFileResponse {}
+
+message UpdateFileRequest {
+  string id = 1 [(buf.validate.field).required = true];
+  // Human-readable slug used in the file's canonical URL (/{id}/{slug}).
+  // An empty string clears it.
+  optional string slug = 2 [(buf.validate.field).string = {
+    pattern: "^[A-Za-z0-9._~-]*$"
+    max_len: 128
+  }];
+}
+
+message UpdateFileResponse {
+  // Canonical URL of the file after the update.
+  string url = 1 [(buf.validate.field) = {
+    string: {uri: true}
+  }];
+}
 
 message DeleteFileRequest {
   string id = 1 [(buf.validate.field).required = true];
