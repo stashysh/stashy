@@ -87,10 +87,18 @@ func openDB() (*db.DB, error) {
 	return db.New(context.Background(), driverFromDSN(dsn), dsn)
 }
 
+// fileHandler serves the public file namespace at the root: /{id} or
+// /{id}/{slug}. It is registered as the catch-all so it doesn't conflict with
+// the /v1/ API subtree, so it parses the path itself.
 func fileHandler(store storage.Storage, service *service.StorageService, sessions *auth.SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		id := r.PathValue("id")
-		if id == "" {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.NotFound(w, r)
+			return
+		}
+
+		id, urlSlug, ok := splitFilePath(r.URL.Path)
+		if !ok {
 			http.NotFound(w, r)
 			return
 		}
@@ -113,7 +121,7 @@ func fileHandler(store storage.Storage, service *service.StorageService, session
 			}
 		}
 
-		switch urlSlug := r.PathValue("slug"); {
+		switch {
 		case urlSlug == meta.Slug:
 			// Exact match, including bare /{id} for a file with no slug: serve.
 		case urlSlug == "":
@@ -127,6 +135,20 @@ func fileHandler(store storage.Storage, service *service.StorageService, session
 		}
 
 		service.ServeFile(w, r, id)
+	}
+}
+
+// splitFilePath parses a root request path into a file id and optional slug.
+// It reports false for anything that isn't /{id} or /{id}/{slug}.
+func splitFilePath(p string) (id, slug string, ok bool) {
+	parts := strings.Split(strings.Trim(p, "/"), "/")
+	switch {
+	case len(parts) == 1 && parts[0] != "":
+		return parts[0], "", true
+	case len(parts) == 2 && parts[0] != "" && parts[1] != "":
+		return parts[0], parts[1], true
+	default:
+		return "", "", false
 	}
 }
 
@@ -287,8 +309,7 @@ func cmdServe(migrate bool) {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.Handle("GET /{$}", webUI)
-	mux.HandleFunc("GET /{id}", fileHandler(store, svc, sessions))
-	mux.HandleFunc("GET /{id}/{slug}", fileHandler(store, svc, sessions))
+	mux.Handle("/", fileHandler(store, svc, sessions))
 
 	addr := ":" + port
 	log.Printf("listening on %s", addr)

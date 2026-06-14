@@ -29,7 +29,6 @@ func TestFileHandlerServesPublicByteRangesThroughStorageRange(t *testing.T) {
 	handler := fileHandler(store, files, auth.NewSessionManager("test-secret"))
 
 	req := httptest.NewRequest(http.MethodGet, "/"+meta.ID, nil)
-	req.SetPathValue("id", meta.ID)
 	req.Header.Set("Range", "bytes=2-5")
 	rec := httptest.NewRecorder()
 
@@ -67,7 +66,6 @@ func TestFileHandlerHeadDoesNotOpenBody(t *testing.T) {
 	handler := fileHandler(store, files, auth.NewSessionManager("test-secret"))
 
 	req := httptest.NewRequest(http.MethodHead, "/"+meta.ID, nil)
-	req.SetPathValue("id", meta.ID)
 	rec := httptest.NewRecorder()
 
 	handler(rec, req)
@@ -118,11 +116,11 @@ func TestFileHandlerCanonicalizesSlug(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			req := httptest.NewRequest(http.MethodGet, "/"+meta.ID, nil)
-			req.SetPathValue("id", meta.ID)
+			path := "/" + meta.ID
 			if tc.urlSlug != "" {
-				req.SetPathValue("slug", tc.urlSlug)
+				path += "/" + tc.urlSlug
 			}
+			req := httptest.NewRequest(http.MethodGet, path, nil)
 			rec := httptest.NewRecorder()
 
 			handler(rec, req)
