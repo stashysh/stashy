@@ -180,7 +180,8 @@ Published files are accessible to anyone. Private files require a login session.
 Ideal for CDN or subdomain mapping (e.g., `cdn.example.com/{id}`).
 
 If a file has a slug, its canonical URL is `/{id}/{slug}` and `/{id}` redirects
-there. `/{id}` always works as the stable link; a wrong slug returns 404.
+there. A stale or wrong slug also redirects to the current canonical URL, so
+links shared before a rename keep working.
 
 ## Storage backends
 

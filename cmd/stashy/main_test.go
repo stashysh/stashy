@@ -111,7 +111,7 @@ func TestFileHandlerCanonicalizesSlug(t *testing.T) {
 	}{
 		{"bare id redirects to slug", "", http.StatusFound, canonical, ""},
 		{"correct slug serves", "my-photo", http.StatusOK, "", "hello"},
-		{"wrong slug is not found", "old-name", http.StatusNotFound, "", ""},
+		{"stale slug redirects to canonical", "old-name", http.StatusFound, canonical, ""},
 	}
 
 	for _, tc := range cases {
