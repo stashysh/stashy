@@ -121,16 +121,11 @@ func fileHandler(store storage.Storage, service *service.StorageService, session
 			}
 		}
 
-		switch {
-		case urlSlug == meta.Slug:
-			// Exact match, including bare /{id} for a file with no slug: serve.
-		case urlSlug == "":
-			// Bare /{id} for a file that has a slug: redirect to the canonical URL.
+		// Redirect any non-matching slug (a bare /{id}, a stale slug from before
+		// a rename, or a typo) to the current canonical URL, so links shared
+		// across renames keep working.
+		if urlSlug != meta.Slug {
 			http.Redirect(w, r, canonicalPath(meta), http.StatusFound)
-			return
-		default:
-			// Any other slug is not a valid URL for this file.
-			http.NotFound(w, r)
 			return
 		}
 
