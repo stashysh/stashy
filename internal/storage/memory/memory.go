@@ -18,7 +18,7 @@ func New() *Storage {
 	return &Storage{files: make(map[string][]byte)}
 }
 
-func (s *Storage) Put(_ context.Context, id string, r io.Reader) (int64, error) {
+func (s *Storage) Put(_ context.Context, id, _ string, r io.Reader) (int64, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
 		return 0, fmt.Errorf("reading file data: %w", err)

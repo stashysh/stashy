@@ -21,14 +21,17 @@ func New(client *s3.Client, bucket string) *Storage {
 	return &Storage{client: client, bucket: bucket}
 }
 
-func (s *Storage) Put(ctx context.Context, id string, r io.Reader) (int64, error) {
+func (s *Storage) Put(ctx context.Context, id, contentType string, r io.Reader) (int64, error) {
 	cr := &countingReader{r: r}
-	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{
+	input := &s3.PutObjectInput{
 		Bucket: &s.bucket,
 		Key:    &id,
 		Body:   cr,
-	})
-	if err != nil {
+	}
+	if contentType != "" {
+		input.ContentType = &contentType
+	}
+	if _, err := s.client.PutObject(ctx, input); err != nil {
 		return 0, fmt.Errorf("putting object: %w", err)
 	}
 	return cr.n, nil

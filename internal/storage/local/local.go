@@ -24,7 +24,7 @@ func (s *Storage) dataPath(id string) string {
 	return filepath.Join(s.dir, id+".data")
 }
 
-func (s *Storage) Put(_ context.Context, id string, r io.Reader) (int64, error) {
+func (s *Storage) Put(_ context.Context, id, _ string, r io.Reader) (int64, error) {
 	f, err := os.Create(s.dataPath(id))
 	if err != nil {
 		return 0, fmt.Errorf("creating file: %w", err)
