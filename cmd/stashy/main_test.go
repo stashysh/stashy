@@ -9,26 +9,57 @@ import (
 	"testing"
 
 	"github.com/stashysh/stashy/internal/auth"
+	"github.com/stashysh/stashy/internal/db"
 	"github.com/stashysh/stashy/internal/service"
 	"github.com/stashysh/stashy/internal/storage"
 	"github.com/stashysh/stashy/internal/storage/memory"
 )
 
-func TestFileHandlerServesPublicByteRangesThroughStorageRange(t *testing.T) {
-	base := memory.New()
-	meta, err := base.Put(t.Context(), "user-1", "video/mp4", strings.NewReader("0123456789"))
+func newTestDB(t *testing.T) *db.DB {
+	t.Helper()
+
+	database, err := db.New(t.Context(), "sqlite", "file:"+t.TempDir()+"/test.db")
 	if err != nil {
+		t.Fatalf("db.New: %v", err)
+	}
+	t.Cleanup(func() { database.Close(context.Background()) })
+
+	if err := database.Migrate(t.Context()); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	return database
+}
+
+func putTestFile(t *testing.T, database *db.DB, store storage.Storage, owner, contentType, body string) *db.File {
+	t.Helper()
+
+	id, err := storage.NewID()
+	if err != nil {
+		t.Fatalf("NewID: %v", err)
+	}
+	if _, err := store.Put(t.Context(), id, strings.NewReader(body)); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
-	if err := base.SetPublic(t.Context(), meta.ID, true); err != nil {
-		t.Fatalf("SetPublic: %v", err)
+	f, err := database.CreateFile(t.Context(), id, owner, contentType, int64(len(body)))
+	if err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
+	return f
+}
+
+func TestFileHandlerServesPublicByteRangesThroughStorageRange(t *testing.T) {
+	database := newTestDB(t)
+	base := memory.New()
+	f := putTestFile(t, database, base, "1", "video/mp4", "0123456789")
+	if err := database.SetFilePublic(t.Context(), f.ID, "1", true); err != nil {
+		t.Fatalf("SetFilePublic: %v", err)
 	}
 
 	store := &rangeTrackingStore{Storage: base}
-	files := service.New(store, "http://example.test")
-	handler := fileHandler(store, files, auth.NewSessionManager("test-secret"))
+	files := service.New(store, database, "http://example.test")
+	handler := fileHandler(database, files, auth.NewSessionManager("test-secret"))
 
-	req := httptest.NewRequest(http.MethodGet, "/"+meta.ID, nil)
+	req := httptest.NewRequest(http.MethodGet, "/"+f.ID, nil)
 	req.Header.Set("Range", "bytes=2-5")
 	rec := httptest.NewRecorder()
 
@@ -52,20 +83,18 @@ func TestFileHandlerServesPublicByteRangesThroughStorageRange(t *testing.T) {
 }
 
 func TestFileHandlerHeadDoesNotOpenBody(t *testing.T) {
+	database := newTestDB(t)
 	base := memory.New()
-	meta, err := base.Put(t.Context(), "user-1", "video/mp4", strings.NewReader("0123456789"))
-	if err != nil {
-		t.Fatalf("Put: %v", err)
-	}
-	if err := base.SetPublic(t.Context(), meta.ID, true); err != nil {
-		t.Fatalf("SetPublic: %v", err)
+	f := putTestFile(t, database, base, "1", "video/mp4", "0123456789")
+	if err := database.SetFilePublic(t.Context(), f.ID, "1", true); err != nil {
+		t.Fatalf("SetFilePublic: %v", err)
 	}
 
 	store := &rangeTrackingStore{Storage: base}
-	files := service.New(store, "http://example.test")
-	handler := fileHandler(store, files, auth.NewSessionManager("test-secret"))
+	files := service.New(store, database, "http://example.test")
+	handler := fileHandler(database, files, auth.NewSessionManager("test-secret"))
 
-	req := httptest.NewRequest(http.MethodHead, "/"+meta.ID, nil)
+	req := httptest.NewRequest(http.MethodHead, "/"+f.ID, nil)
 	rec := httptest.NewRecorder()
 
 	handler(rec, req)
@@ -85,22 +114,20 @@ func TestFileHandlerHeadDoesNotOpenBody(t *testing.T) {
 }
 
 func TestFileHandlerCanonicalizesSlug(t *testing.T) {
+	database := newTestDB(t)
 	store := memory.New()
-	meta, err := store.Put(t.Context(), "user-1", "text/plain", strings.NewReader("hello"))
-	if err != nil {
-		t.Fatalf("Put: %v", err)
+	f := putTestFile(t, database, store, "1", "text/plain", "hello")
+	if err := database.SetFilePublic(t.Context(), f.ID, "1", true); err != nil {
+		t.Fatalf("SetFilePublic: %v", err)
 	}
-	if err := store.SetPublic(t.Context(), meta.ID, true); err != nil {
-		t.Fatalf("SetPublic: %v", err)
-	}
-	if err := store.SetSlug(t.Context(), meta.ID, "user-1", "my-photo"); err != nil {
-		t.Fatalf("SetSlug: %v", err)
+	if err := database.SetFileSlug(t.Context(), f.ID, "1", "my-photo"); err != nil {
+		t.Fatalf("SetFileSlug: %v", err)
 	}
 
-	files := service.New(store, "http://example.test")
-	handler := fileHandler(store, files, auth.NewSessionManager("test-secret"))
+	files := service.New(store, database, "http://example.test")
+	handler := fileHandler(database, files, auth.NewSessionManager("test-secret"))
 
-	canonical := "/" + meta.ID + "/my-photo"
+	canonical := "/" + f.ID + "/my-photo"
 
 	cases := []struct {
 		name     string
@@ -116,7 +143,7 @@ func TestFileHandlerCanonicalizesSlug(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			path := "/" + meta.ID
+			path := "/" + f.ID
 			if tc.urlSlug != "" {
 				path += "/" + tc.urlSlug
 			}
@@ -144,7 +171,7 @@ type rangeTrackingStore struct {
 	getRangeCalls int
 }
 
-func (s *rangeTrackingStore) Get(ctx context.Context, id string) (io.ReadCloser, *storage.FileMeta, error) {
+func (s *rangeTrackingStore) Get(ctx context.Context, id string) (io.ReadCloser, error) {
 	s.getCalls++
 	return s.Storage.Get(ctx, id)
 }

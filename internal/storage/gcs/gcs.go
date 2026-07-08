@@ -7,10 +7,9 @@ import (
 	"io"
 
 	gcstorage "cloud.google.com/go/storage"
-	"github.com/stashysh/stashy/internal/storage"
 )
 
-// Storage stores files in Google Cloud Storage.
+// Storage stores file bytes in Google Cloud Storage.
 type Storage struct {
 	bucket *gcstorage.BucketHandle
 }
@@ -19,78 +18,30 @@ func New(client *gcstorage.Client, bucketName string) *Storage {
 	return &Storage{bucket: client.Bucket(bucketName)}
 }
 
-func (s *Storage) Put(ctx context.Context, owner, contentType string, r io.Reader) (*storage.FileMeta, error) {
-	id, err := storage.NewID()
-	if err != nil {
-		return nil, fmt.Errorf("generating id: %w", err)
-	}
-	obj := s.bucket.Object(id)
-
-	w := obj.NewWriter(ctx)
-	w.ContentType = contentType
-	w.Metadata = map[string]string{"owner": owner}
+func (s *Storage) Put(ctx context.Context, id string, r io.Reader) (int64, error) {
+	w := s.bucket.Object(id).NewWriter(ctx)
 
 	n, err := io.Copy(w, r)
 	if err != nil {
 		w.Close()
-		return nil, fmt.Errorf("writing to GCS: %w", err)
+		return 0, fmt.Errorf("writing to GCS: %w", err)
 	}
 
 	if err := w.Close(); err != nil {
-		return nil, fmt.Errorf("closing GCS writer: %w", err)
+		return 0, fmt.Errorf("closing GCS writer: %w", err)
 	}
-
-	return &storage.FileMeta{
-		ID:          id,
-		Owner:       owner,
-		ContentType: contentType,
-		Size:        n,
-	}, nil
+	return n, nil
 }
 
-func (s *Storage) Stat(ctx context.Context, id string) (*storage.FileMeta, error) {
-	attrs, err := s.bucket.Object(id).Attrs(ctx)
+func (s *Storage) Get(ctx context.Context, id string) (io.ReadCloser, error) {
+	r, err := s.bucket.Object(id).NewReader(ctx)
 	if err != nil {
 		if errors.Is(err, gcstorage.ErrObjectNotExist) {
 			return nil, fmt.Errorf("file not found: %s", id)
 		}
-		return nil, fmt.Errorf("getting object attrs: %w", err)
+		return nil, fmt.Errorf("opening GCS reader: %w", err)
 	}
-
-	return &storage.FileMeta{
-		ID:          id,
-		Owner:       attrs.Metadata["owner"],
-		ContentType: attrs.ContentType,
-		Size:        attrs.Size,
-		Public:      attrs.Metadata["public"] == "true",
-		Slug:        attrs.Metadata["slug"],
-	}, nil
-}
-
-func (s *Storage) Get(ctx context.Context, id string) (io.ReadCloser, *storage.FileMeta, error) {
-	obj := s.bucket.Object(id)
-
-	attrs, err := obj.Attrs(ctx)
-	if err != nil {
-		if errors.Is(err, gcstorage.ErrObjectNotExist) {
-			return nil, nil, fmt.Errorf("file not found: %s", id)
-		}
-		return nil, nil, fmt.Errorf("getting object attrs: %w", err)
-	}
-
-	r, err := obj.NewReader(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("opening GCS reader: %w", err)
-	}
-
-	return r, &storage.FileMeta{
-		ID:          id,
-		Owner:       attrs.Metadata["owner"],
-		ContentType: attrs.ContentType,
-		Size:        attrs.Size,
-		Public:      attrs.Metadata["public"] == "true",
-		Slug:        attrs.Metadata["slug"],
-	}, nil
+	return r, nil
 }
 
 func (s *Storage) GetRange(ctx context.Context, id string, start, length int64) (io.ReadCloser, error) {
@@ -104,122 +55,12 @@ func (s *Storage) GetRange(ctx context.Context, id string, start, length int64) 
 	return r, nil
 }
 
-func (s *Storage) Update(ctx context.Context, id, owner, contentType string, r io.Reader) (*storage.FileMeta, error) {
-	obj := s.bucket.Object(id)
-
-	attrs, err := obj.Attrs(ctx)
-	if err != nil {
+func (s *Storage) Delete(ctx context.Context, id string) error {
+	if err := s.bucket.Object(id).Delete(ctx); err != nil {
 		if errors.Is(err, gcstorage.ErrObjectNotExist) {
-			return nil, fmt.Errorf("file not found: %s", id)
+			return nil
 		}
-		return nil, fmt.Errorf("getting object attrs: %w", err)
-	}
-
-	if attrs.Metadata["owner"] != owner {
-		return nil, fmt.Errorf("permission denied")
-	}
-
-	w := obj.NewWriter(ctx)
-	w.ContentType = contentType
-	w.Metadata = attrs.Metadata
-
-	n, err := io.Copy(w, r)
-	if err != nil {
-		w.Close()
-		return nil, fmt.Errorf("writing to GCS: %w", err)
-	}
-
-	if err := w.Close(); err != nil {
-		return nil, fmt.Errorf("closing GCS writer: %w", err)
-	}
-
-	return &storage.FileMeta{
-		ID:          id,
-		Owner:       owner,
-		ContentType: contentType,
-		Size:        n,
-		Public:      attrs.Metadata["public"] == "true",
-		Slug:        attrs.Metadata["slug"],
-	}, nil
-}
-
-func (s *Storage) Delete(ctx context.Context, id, owner string) error {
-	obj := s.bucket.Object(id)
-
-	attrs, err := obj.Attrs(ctx)
-	if err != nil {
-		if errors.Is(err, gcstorage.ErrObjectNotExist) {
-			return fmt.Errorf("file not found: %s", id)
-		}
-		return fmt.Errorf("getting object attrs: %w", err)
-	}
-
-	if attrs.Metadata["owner"] != owner {
-		return fmt.Errorf("permission denied")
-	}
-
-	if err := obj.Delete(ctx); err != nil {
 		return fmt.Errorf("deleting object: %w", err)
-	}
-	return nil
-}
-
-func (s *Storage) SetPublic(ctx context.Context, id string, public bool) error {
-	obj := s.bucket.Object(id)
-
-	attrs, err := obj.Attrs(ctx)
-	if err != nil {
-		if errors.Is(err, gcstorage.ErrObjectNotExist) {
-			return fmt.Errorf("file not found: %s", id)
-		}
-		return fmt.Errorf("getting object attrs: %w", err)
-	}
-
-	meta := attrs.Metadata
-	if meta == nil {
-		meta = make(map[string]string)
-	}
-
-	if public {
-		meta["public"] = "true"
-	} else {
-		meta["public"] = "false"
-	}
-
-	_, err = obj.Update(ctx, gcstorage.ObjectAttrsToUpdate{Metadata: meta})
-	if err != nil {
-		return fmt.Errorf("updating object metadata: %w", err)
-	}
-	return nil
-}
-
-func (s *Storage) SetSlug(ctx context.Context, id, owner, slug string) error {
-	obj := s.bucket.Object(id)
-
-	attrs, err := obj.Attrs(ctx)
-	if err != nil {
-		if errors.Is(err, gcstorage.ErrObjectNotExist) {
-			return fmt.Errorf("file not found: %s", id)
-		}
-		return fmt.Errorf("getting object attrs: %w", err)
-	}
-
-	if attrs.Metadata["owner"] != owner {
-		return fmt.Errorf("permission denied")
-	}
-
-	meta := attrs.Metadata
-	if meta == nil {
-		meta = make(map[string]string)
-	}
-
-	// A GCS metadata PATCH merges keys, so deleting "slug" from the map would
-	// leave the old value in place. Store the value directly instead; an empty
-	// string reads back as no slug. Same approach as SetPublic.
-	meta["slug"] = slug
-
-	if _, err := obj.Update(ctx, gcstorage.ObjectAttrsToUpdate{Metadata: meta}); err != nil {
-		return fmt.Errorf("updating object metadata: %w", err)
 	}
 	return nil
 }

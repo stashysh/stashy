@@ -12,21 +12,11 @@ import (
 	"github.com/stashysh/stashy/internal/auth"
 )
 
-// ServeFile fetches id from storage and streams it directly to w.
+// ServeFile fetches id and streams it directly to w. Metadata (content type,
+// size) comes from the database; storage is only touched for the bytes.
 // The caller is responsible for any authorization checks before calling this.
 func (s *StorageService) ServeFile(w http.ResponseWriter, r *http.Request, id string) {
-	rangeHeader := r.Header.Get("Range")
-	if rangeHeader != "" {
-		s.serveFileRange(w, r, id, rangeHeader)
-		return
-	}
-
-	if r.Method == http.MethodHead {
-		s.serveFileHead(w, r, id)
-		return
-	}
-
-	rc, meta, err := s.store.Get(r.Context(), id)
+	f, err := s.db.GetFile(r.Context(), id)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			http.NotFound(w, r)
@@ -36,60 +26,46 @@ func (s *StorageService) ServeFile(w http.ResponseWriter, r *http.Request, id st
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+
+	// Set once for every path below: full GET, HEAD, and range responses.
+	w.Header().Set("Content-Type", f.ContentType)
+	w.Header().Set("Accept-Ranges", "bytes")
+
+	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
+		s.serveFileRange(w, r, id, f.Size, rangeHeader)
+		return
+	}
+
+	w.Header().Set("Content-Length", strconv.FormatInt(f.Size, 10))
+	if r.Method == http.MethodHead {
+		return
+	}
+
+	rc, err := s.store.Get(r.Context(), id)
+	if err != nil {
+		log.Printf("ServeFile %s: %v", id, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	defer rc.Close()
 
-	w.Header().Set("Content-Type", meta.ContentType)
-	w.Header().Set("Accept-Ranges", "bytes")
-	if meta.Size >= 0 {
-		w.Header().Set("Content-Length", strconv.FormatInt(meta.Size, 10))
-	}
 	if _, err := io.Copy(w, rc); err != nil {
 		log.Printf("ServeFile %s: copy: %v", id, err)
 	}
 }
 
-func (s *StorageService) serveFileHead(w http.ResponseWriter, r *http.Request, id string) {
-	meta, err := s.store.Stat(r.Context(), id)
+// serveFileRange handles Range requests. Content-Type and Accept-Ranges are
+// already set by ServeFile.
+func (s *StorageService) serveFileRange(w http.ResponseWriter, r *http.Request, id string, size int64, rangeHeader string) {
+	byteRange, err := parseByteRange(rangeHeader, size)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			http.NotFound(w, r)
-			return
-		}
-		log.Printf("ServeFile %s: stat: %v", id, err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", meta.ContentType)
-	w.Header().Set("Accept-Ranges", "bytes")
-	if meta.Size >= 0 {
-		w.Header().Set("Content-Length", strconv.FormatInt(meta.Size, 10))
-	}
-}
-
-func (s *StorageService) serveFileRange(w http.ResponseWriter, r *http.Request, id, rangeHeader string) {
-	meta, err := s.store.Stat(r.Context(), id)
-	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			http.NotFound(w, r)
-			return
-		}
-		log.Printf("ServeFile %s: stat: %v", id, err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	w.Header().Set("Content-Type", meta.ContentType)
-	w.Header().Set("Accept-Ranges", "bytes")
-	byteRange, err := parseByteRange(rangeHeader, meta.Size)
-	if err != nil {
-		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", meta.Size))
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", size))
 		http.Error(w, "requested range not satisfiable", http.StatusRequestedRangeNotSatisfiable)
 		return
 	}
 
 	w.Header().Set("Content-Length", strconv.FormatInt(byteRange.length(), 10))
-	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", byteRange.start, byteRange.end, meta.Size))
+	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", byteRange.start, byteRange.end, size))
 	if r.Method == http.MethodHead {
 		w.WriteHeader(http.StatusPartialContent)
 		return
@@ -97,10 +73,6 @@ func (s *StorageService) serveFileRange(w http.ResponseWriter, r *http.Request, 
 
 	rc, err := s.store.GetRange(r.Context(), id, byteRange.start, byteRange.length())
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			http.NotFound(w, r)
-			return
-		}
 		log.Printf("ServeFile %s: get range: %v", id, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -185,7 +157,7 @@ func (s *StorageService) HTTPUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	meta, err := s.store.Put(r.Context(), owner, ct, r.Body)
+	f, err := s.putFile(r.Context(), owner, ct, r.Body)
 	if err != nil {
 		log.Printf("HTTPUpload: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -196,7 +168,7 @@ func (s *StorageService) HTTPUpload(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(struct {
 		ID  string `json:"id"`
 		URL string `json:"url"`
-	}{ID: meta.ID, URL: s.hostname + "/" + meta.ID})
+	}{ID: f.ID, URL: s.hostname + "/" + f.ID})
 }
 
 // HTTPReplace handles PUT /v1/files/{id} directly, bypassing Vanguard.
@@ -219,7 +191,7 @@ func (s *StorageService) HTTPReplace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := s.store.Update(r.Context(), id, owner, ct, r.Body); err != nil {
+	if err := s.replaceFile(r.Context(), id, owner, ct, r.Body); err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			http.NotFound(w, r)
 			return

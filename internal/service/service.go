@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 
 	"connectrpc.com/connect"
@@ -12,6 +13,7 @@ import (
 	stashyv1alpha1 "github.com/stashysh/stashy/gen/stashy/v1alpha1"
 	"github.com/stashysh/stashy/gen/stashy/v1alpha1/stashyv1alpha1connect"
 	"github.com/stashysh/stashy/internal/auth"
+	"github.com/stashysh/stashy/internal/db"
 	"github.com/stashysh/stashy/internal/storage"
 )
 
@@ -19,13 +21,14 @@ const chunkSize = 64 * 1024 // 64KB
 
 type StorageService struct {
 	store    storage.Storage
+	db       *db.DB
 	hostname string
 }
 
 var _ stashyv1alpha1connect.StorageServiceHandler = (*StorageService)(nil)
 
-func New(store storage.Storage, hostname string) *StorageService {
-	return &StorageService{store: store, hostname: strings.TrimRight(hostname, "/")}
+func New(store storage.Storage, database *db.DB, hostname string) *StorageService {
+	return &StorageService{store: store, db: database, hostname: strings.TrimRight(hostname, "/")}
 }
 
 // validateContentType checks and normalizes the content type from an HttpBody.
@@ -39,8 +42,8 @@ func validateContentType(ct string) (string, error) {
 	return ct, nil
 }
 
-// storageError maps a storage-layer error to the appropriate connect code.
-func storageError(err error) error {
+// fileError maps a db/storage-layer error to the appropriate connect code.
+func fileError(err error) error {
 	switch {
 	case strings.Contains(err.Error(), "not found"):
 		return connect.NewError(connect.CodeNotFound, err)
@@ -53,11 +56,49 @@ func storageError(err error) error {
 
 // canonicalURL builds the canonical public URL for a file, including its slug
 // when set.
-func (s *StorageService) canonicalURL(meta *storage.FileMeta) string {
-	if meta.Slug != "" {
-		return s.hostname + "/" + meta.ID + "/" + meta.Slug
+func (s *StorageService) canonicalURL(f *db.File) string {
+	if f.Slug != "" {
+		return s.hostname + "/" + f.ID + "/" + f.Slug
 	}
-	return s.hostname + "/" + meta.ID
+	return s.hostname + "/" + f.ID
+}
+
+// putFile streams r into storage under a fresh id and records the metadata
+// row. Bytes are written first; if the insert fails the orphaned bytes are
+// removed so the database stays the source of truth.
+func (s *StorageService) putFile(ctx context.Context, owner, contentType string, r io.Reader) (*db.File, error) {
+	id, err := storage.NewID()
+	if err != nil {
+		return nil, fmt.Errorf("generating id: %w", err)
+	}
+
+	size, err := s.store.Put(ctx, id, r)
+	if err != nil {
+		return nil, err
+	}
+
+	f, err := s.db.CreateFile(ctx, id, owner, contentType, size)
+	if err != nil {
+		if derr := s.store.Delete(ctx, id); derr != nil {
+			log.Printf("cleaning up %s after failed insert: %v", id, derr)
+		}
+		return nil, err
+	}
+	return f, nil
+}
+
+// replaceFile overwrites an existing file's bytes and content metadata after
+// verifying ownership.
+func (s *StorageService) replaceFile(ctx context.Context, id, owner, contentType string, r io.Reader) error {
+	if err := s.db.CheckFileOwner(ctx, id, owner); err != nil {
+		return err
+	}
+
+	size, err := s.store.Put(ctx, id, r)
+	if err != nil {
+		return err
+	}
+	return s.db.UpdateFileContent(ctx, id, owner, contentType, size)
 }
 
 func (s *StorageService) CreateFile(
@@ -89,14 +130,14 @@ func (s *StorageService) CreateFile(
 	pr, pw := io.Pipe()
 
 	var putResult struct {
-		meta *storage.FileMeta
+		file *db.File
 		err  error
 	}
 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		putResult.meta, putResult.err = s.store.Put(ctx, owner, contentType, pr)
+		putResult.file, putResult.err = s.putFile(ctx, owner, contentType, pr)
 	}()
 
 	if len(firstData) > 0 {
@@ -132,8 +173,8 @@ func (s *StorageService) CreateFile(
 	}
 
 	return connect.NewResponse(&stashyv1alpha1.CreateFileResponse{
-		Id:  putResult.meta.ID,
-		Url: s.hostname + "/" + putResult.meta.ID,
+		Id:  putResult.file.ID,
+		Url: s.hostname + "/" + putResult.file.ID,
 	}), nil
 }
 
@@ -170,14 +211,16 @@ func (s *StorageService) ReplaceFile(
 	}
 
 	pr, pw := io.Pipe()
-	var updateResult struct {
-		meta *storage.FileMeta
-		err  error
-	}
+	var updateErr error
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		updateResult.meta, updateResult.err = s.store.Update(ctx, id, owner, contentType, pr)
+		updateErr = s.replaceFile(ctx, id, owner, contentType, pr)
+		// Drain the pipe on early failure (e.g. ownership check) so the
+		// writer side doesn't block forever.
+		if updateErr != nil {
+			io.Copy(io.Discard, pr)
+		}
 	}()
 
 	if len(firstData) > 0 {
@@ -208,14 +251,8 @@ func (s *StorageService) ReplaceFile(
 	pw.Close()
 	<-done
 
-	if updateResult.err != nil {
-		if strings.Contains(updateResult.err.Error(), "not found") {
-			return nil, connect.NewError(connect.CodeNotFound, updateResult.err)
-		}
-		if strings.Contains(updateResult.err.Error(), "permission denied") {
-			return nil, connect.NewError(connect.CodePermissionDenied, updateResult.err)
-		}
-		return nil, connect.NewError(connect.CodeInternal, updateResult.err)
+	if updateErr != nil {
+		return nil, fileError(updateErr)
 	}
 
 	return connect.NewResponse(&stashyv1alpha1.ReplaceFileResponse{}), nil
@@ -239,18 +276,18 @@ func (s *StorageService) UpdateFile(
 	// A nil slug means "leave unchanged"; an empty string clears it. The slug
 	// format is enforced by the protovalidate interceptor.
 	if req.Msg.Slug != nil {
-		if err := s.store.SetSlug(ctx, id, owner, *req.Msg.Slug); err != nil {
-			return nil, storageError(err)
+		if err := s.db.SetFileSlug(ctx, id, owner, *req.Msg.Slug); err != nil {
+			return nil, fileError(err)
 		}
 	}
 
-	meta, err := s.store.Stat(ctx, id)
+	f, err := s.db.GetFile(ctx, id)
 	if err != nil {
-		return nil, storageError(err)
+		return nil, fileError(err)
 	}
 
 	return connect.NewResponse(&stashyv1alpha1.UpdateFileResponse{
-		Url: s.canonicalURL(meta),
+		Url: s.canonicalURL(f),
 	}), nil
 }
 
@@ -263,14 +300,13 @@ func (s *StorageService) DeleteFile(
 		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
 	}
 
-	if err := s.store.Delete(ctx, req.Msg.Id, owner); err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		if strings.Contains(err.Error(), "permission denied") {
-			return nil, connect.NewError(connect.CodePermissionDenied, err)
-		}
-		return nil, connect.NewError(connect.CodeInternal, err)
+	if err := s.db.DeleteFile(ctx, req.Msg.Id, owner); err != nil {
+		return nil, fileError(err)
+	}
+	// The row is gone, so the file is already unreachable; leftover bytes
+	// from a failed delete are orphans, not corruption.
+	if err := s.store.Delete(ctx, req.Msg.Id); err != nil {
+		log.Printf("deleting bytes for %s: %v", req.Msg.Id, err)
 	}
 	return connect.NewResponse(&stashyv1alpha1.DeleteFileResponse{}), nil
 }
@@ -279,11 +315,13 @@ func (s *StorageService) PublishFile(
 	ctx context.Context,
 	req *connect.Request[stashyv1alpha1.PublishFileRequest],
 ) (*connect.Response[stashyv1alpha1.PublishFileResponse], error) {
-	if err := s.store.SetPublic(ctx, req.Msg.Id, true); err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, connect.NewError(connect.CodeInternal, err)
+	owner, ok := auth.UserIDFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+	}
+
+	if err := s.db.SetFilePublic(ctx, req.Msg.Id, owner, true); err != nil {
+		return nil, fileError(err)
 	}
 	return connect.NewResponse(&stashyv1alpha1.PublishFileResponse{}), nil
 }
@@ -292,11 +330,13 @@ func (s *StorageService) UnpublishFile(
 	ctx context.Context,
 	req *connect.Request[stashyv1alpha1.UnpublishFileRequest],
 ) (*connect.Response[stashyv1alpha1.UnpublishFileResponse], error) {
-	if err := s.store.SetPublic(ctx, req.Msg.Id, false); err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, connect.NewError(connect.CodeNotFound, err)
-		}
-		return nil, connect.NewError(connect.CodeInternal, err)
+	owner, ok := auth.UserIDFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+	}
+
+	if err := s.db.SetFilePublic(ctx, req.Msg.Id, owner, false); err != nil {
+		return nil, fileError(err)
 	}
 	return connect.NewResponse(&stashyv1alpha1.UnpublishFileResponse{}), nil
 }
@@ -306,7 +346,12 @@ func (s *StorageService) GetFile(
 	req *connect.Request[stashyv1alpha1.GetFileRequest],
 	stream *connect.ServerStream[stashyv1alpha1.GetFileResponse],
 ) error {
-	rc, meta, err := s.store.Get(ctx, req.Msg.Id)
+	f, err := s.db.GetFile(ctx, req.Msg.Id)
+	if err != nil {
+		return fileError(err)
+	}
+
+	rc, err := s.store.Get(ctx, req.Msg.Id)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			return connect.NewError(connect.CodeNotFound, err)
@@ -327,7 +372,7 @@ func (s *StorageService) GetFile(
 				},
 			}
 			if first {
-				chunk.File.ContentType = meta.ContentType
+				chunk.File.ContentType = f.ContentType
 				first = false
 			}
 			if err := stream.Send(chunk); err != nil {
