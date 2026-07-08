@@ -32,6 +32,19 @@ type APIKey struct {
 	CreatedAt time.Time
 }
 
+// File is the metadata record for a stored file. The database is the source
+// of truth for metadata; storage backends only hold the bytes.
+type File struct {
+	ID          string
+	Owner       string
+	ContentType string
+	Size        int64
+	Public      bool
+	Slug        string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+}
+
 type DB struct {
 	sql     *sql.DB
 	dialect string
@@ -55,14 +68,18 @@ func New(ctx context.Context, driver, dsn string) (*DB, error) {
 	return &DB{sql: sqlDB, dialect: dialect}, nil
 }
 
-// Migrate runs all pending database migrations.
+// Migrate runs all pending database migrations for the connected dialect.
 func (d *DB) Migrate(ctx context.Context) error {
-	migrations.Dialect = d.dialect
+	dir := "sqlite"
+	if d.dialect == "pgx" {
+		dir = "postgres"
+	}
 
+	goose.SetBaseFS(migrations.FS)
 	if err := goose.SetDialect(d.dialect); err != nil {
 		return fmt.Errorf("setting goose dialect: %w", err)
 	}
-	if err := goose.UpContext(ctx, d.sql, "."); err != nil {
+	if err := goose.UpContext(ctx, d.sql, dir); err != nil {
 		return fmt.Errorf("running migrations: %w", err)
 	}
 	return nil
@@ -203,6 +220,144 @@ func (d *DB) DeleteAPIKey(ctx context.Context, keyID, userID string) error {
 	n, _ := result.RowsAffected()
 	if n == 0 {
 		return fmt.Errorf("api key not found")
+	}
+	return nil
+}
+
+const fileColumns = `id, owner_id, content_type, size, public, slug, created_at, updated_at`
+
+func scanFile(row interface{ Scan(...any) error }) (*File, error) {
+	var f File
+	err := row.Scan(&f.ID, &f.Owner, &f.ContentType, &f.Size, &f.Public, &f.Slug, &f.CreatedAt, &f.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	return &f, nil
+}
+
+func (d *DB) CreateFile(ctx context.Context, id, owner, contentType string, size int64) (*File, error) {
+	// File times are stored in UTC: SQLite compares timestamps as text, so a
+	// stable zone (and no monotonic-clock suffix) keeps ordering and the
+	// keyset cursor in ListFiles correct.
+	now := time.Now().UTC()
+	query := d.q(`INSERT INTO files (id, owner_id, content_type, size, public, slug, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, '', ?, ?)`)
+	if _, err := d.sql.ExecContext(ctx, query, id, owner, contentType, size, false, now, now); err != nil {
+		return nil, fmt.Errorf("inserting file: %w", err)
+	}
+	return &File{
+		ID:          id,
+		Owner:       owner,
+		ContentType: contentType,
+		Size:        size,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}, nil
+}
+
+func (d *DB) GetFile(ctx context.Context, id string) (*File, error) {
+	query := d.q(`SELECT ` + fileColumns + ` FROM files WHERE id = ?`)
+	f, err := scanFile(d.sql.QueryRowContext(ctx, query, id))
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, fmt.Errorf("file not found: %s", id)
+		}
+		return nil, fmt.Errorf("getting file: %w", err)
+	}
+	return f, nil
+}
+
+// ListFiles returns up to limit of owner's files, newest first. A non-empty
+// afterID (paired with its row's afterCreatedAt) is a keyset cursor: only
+// files strictly older than that row are returned.
+func (d *DB) ListFiles(ctx context.Context, owner string, limit int, afterCreatedAt time.Time, afterID string) ([]File, error) {
+	query := `SELECT ` + fileColumns + ` FROM files WHERE owner_id = ?`
+	args := []any{owner}
+	if afterID != "" {
+		query += ` AND (created_at, id) < (?, ?)`
+		args = append(args, afterCreatedAt.UTC(), afterID)
+	}
+	query += ` ORDER BY created_at DESC, id DESC LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := d.sql.QueryContext(ctx, d.q(query), args...)
+	if err != nil {
+		return nil, fmt.Errorf("listing files: %w", err)
+	}
+	defer rows.Close()
+
+	var files []File
+	for rows.Next() {
+		f, err := scanFile(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scanning file: %w", err)
+		}
+		files = append(files, *f)
+	}
+	return files, rows.Err()
+}
+
+// CheckFileOwner reports whether the file exists and is owned by owner,
+// with error messages matching the storage-layer conventions
+// ("file not found", "permission denied").
+func (d *DB) CheckFileOwner(ctx context.Context, id, owner string) error {
+	query := d.q(`SELECT owner_id FROM files WHERE id = ?`)
+	var got string
+	err := d.sql.QueryRowContext(ctx, query, id).Scan(&got)
+	if err == sql.ErrNoRows {
+		return fmt.Errorf("file not found: %s", id)
+	}
+	if err != nil {
+		return fmt.Errorf("getting file owner: %w", err)
+	}
+	if got != owner {
+		return fmt.Errorf("permission denied")
+	}
+	return nil
+}
+
+// UpdateFileContent records new content metadata after a file's bytes are replaced.
+func (d *DB) UpdateFileContent(ctx context.Context, id, owner, contentType string, size int64) error {
+	if err := d.CheckFileOwner(ctx, id, owner); err != nil {
+		return err
+	}
+	query := d.q(`UPDATE files SET content_type = ?, size = ?, updated_at = ? WHERE id = ?`)
+	if _, err := d.sql.ExecContext(ctx, query, contentType, size, time.Now().UTC(), id); err != nil {
+		return fmt.Errorf("updating file: %w", err)
+	}
+	return nil
+}
+
+func (d *DB) SetFilePublic(ctx context.Context, id, owner string, public bool) error {
+	if err := d.CheckFileOwner(ctx, id, owner); err != nil {
+		return err
+	}
+	query := d.q(`UPDATE files SET public = ?, updated_at = ? WHERE id = ?`)
+	if _, err := d.sql.ExecContext(ctx, query, public, time.Now().UTC(), id); err != nil {
+		return fmt.Errorf("updating file visibility: %w", err)
+	}
+	return nil
+}
+
+// SetFileSlug sets the file's slug, or clears it when slug is empty.
+func (d *DB) SetFileSlug(ctx context.Context, id, owner, slug string) error {
+	if err := d.CheckFileOwner(ctx, id, owner); err != nil {
+		return err
+	}
+	query := d.q(`UPDATE files SET slug = ?, updated_at = ? WHERE id = ?`)
+	if _, err := d.sql.ExecContext(ctx, query, slug, time.Now().UTC(), id); err != nil {
+		return fmt.Errorf("updating file slug: %w", err)
+	}
+	return nil
+}
+
+func (d *DB) DeleteFile(ctx context.Context, id, owner string) error {
+	if err := d.CheckFileOwner(ctx, id, owner); err != nil {
+		return err
+	}
+	query := d.q(`DELETE FROM files WHERE id = ?`)
+	if _, err := d.sql.ExecContext(ctx, query, id); err != nil {
+		return fmt.Errorf("deleting file: %w", err)
 	}
 	return nil
 }

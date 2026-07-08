@@ -2,24 +2,13 @@ package local
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-
-	"github.com/stashysh/stashy/internal/storage"
 )
 
-type meta struct {
-	Owner       string `json:"owner"`
-	ContentType string `json:"content_type"`
-	Size        int64  `json:"size"`
-	Public      bool   `json:"public"`
-	Slug        string `json:"slug,omitempty"`
-}
-
-// Storage stores files on the local filesystem.
+// Storage stores file bytes on the local filesystem, one file per id.
 type Storage struct {
 	dir string
 }
@@ -35,87 +24,30 @@ func (s *Storage) dataPath(id string) string {
 	return filepath.Join(s.dir, id+".data")
 }
 
-func (s *Storage) metaPath(id string) string {
-	return filepath.Join(s.dir, id+".meta")
-}
-
-func (s *Storage) Put(_ context.Context, owner, contentType string, r io.Reader) (*storage.FileMeta, error) {
-	id, err := storage.NewID()
-	if err != nil {
-		return nil, fmt.Errorf("generating id: %w", err)
-	}
-
+func (s *Storage) Put(_ context.Context, id string, r io.Reader) (int64, error) {
 	f, err := os.Create(s.dataPath(id))
 	if err != nil {
-		return nil, fmt.Errorf("creating file: %w", err)
+		return 0, fmt.Errorf("creating file: %w", err)
 	}
 	defer f.Close()
 
 	n, err := io.Copy(f, r)
 	if err != nil {
 		os.Remove(s.dataPath(id))
-		return nil, fmt.Errorf("writing file: %w", err)
+		return 0, fmt.Errorf("writing file: %w", err)
 	}
-
-	m := meta{Owner: owner, ContentType: contentType, Size: n}
-	mf, err := os.Create(s.metaPath(id))
-	if err != nil {
-		os.Remove(s.dataPath(id))
-		return nil, fmt.Errorf("creating meta file: %w", err)
-	}
-	defer mf.Close()
-
-	if err := json.NewEncoder(mf).Encode(&m); err != nil {
-		os.Remove(s.dataPath(id))
-		os.Remove(s.metaPath(id))
-		return nil, fmt.Errorf("writing meta: %w", err)
-	}
-
-	return &storage.FileMeta{
-		ID:          id,
-		Owner:       owner,
-		ContentType: contentType,
-		Size:        n,
-	}, nil
+	return n, nil
 }
 
-func (s *Storage) Stat(_ context.Context, id string) (*storage.FileMeta, error) {
-	mf, err := os.Open(s.metaPath(id))
+func (s *Storage) Get(_ context.Context, id string) (io.ReadCloser, error) {
+	f, err := os.Open(s.dataPath(id))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("file not found: %s", id)
 		}
-		return nil, fmt.Errorf("reading meta: %w", err)
+		return nil, fmt.Errorf("opening file: %w", err)
 	}
-	defer mf.Close()
-
-	var m meta
-	if err := json.NewDecoder(mf).Decode(&m); err != nil {
-		return nil, fmt.Errorf("decoding meta: %w", err)
-	}
-
-	return &storage.FileMeta{
-		ID:          id,
-		Owner:       m.Owner,
-		ContentType: m.ContentType,
-		Size:        m.Size,
-		Public:      m.Public,
-		Slug:        m.Slug,
-	}, nil
-}
-
-func (s *Storage) Get(ctx context.Context, id string) (io.ReadCloser, *storage.FileMeta, error) {
-	meta, err := s.Stat(ctx, id)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	f, err := os.Open(s.dataPath(id))
-	if err != nil {
-		return nil, nil, fmt.Errorf("opening file: %w", err)
-	}
-
-	return f, meta, nil
+	return f, nil
 }
 
 func (s *Storage) GetRange(_ context.Context, id string, start, _ int64) (io.ReadCloser, error) {
@@ -130,143 +62,12 @@ func (s *Storage) GetRange(_ context.Context, id string, start, _ int64) (io.Rea
 		f.Close()
 		return nil, fmt.Errorf("seeking file: %w", err)
 	}
-
 	return f, nil
 }
 
-func (s *Storage) Update(_ context.Context, id, owner, contentType string, r io.Reader) (*storage.FileMeta, error) {
-	mf, err := os.Open(s.metaPath(id))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("file not found: %s", id)
-		}
-		return nil, fmt.Errorf("reading meta: %w", err)
+func (s *Storage) Delete(_ context.Context, id string) error {
+	if err := os.Remove(s.dataPath(id)); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("deleting file: %w", err)
 	}
-
-	var m meta
-	if err := json.NewDecoder(mf).Decode(&m); err != nil {
-		mf.Close()
-		return nil, fmt.Errorf("decoding meta: %w", err)
-	}
-	mf.Close()
-
-	if m.Owner != owner {
-		return nil, fmt.Errorf("permission denied")
-	}
-
-	f, err := os.Create(s.dataPath(id))
-	if err != nil {
-		return nil, fmt.Errorf("creating file: %w", err)
-	}
-	defer f.Close()
-
-	n, err := io.Copy(f, r)
-	if err != nil {
-		return nil, fmt.Errorf("writing file: %w", err)
-	}
-
-	m.ContentType = contentType
-	m.Size = n
-
-	wf, err := os.Create(s.metaPath(id))
-	if err != nil {
-		return nil, fmt.Errorf("writing meta: %w", err)
-	}
-	defer wf.Close()
-
-	if err := json.NewEncoder(wf).Encode(&m); err != nil {
-		return nil, fmt.Errorf("encoding meta: %w", err)
-	}
-
-	return &storage.FileMeta{
-		ID:          id,
-		Owner:       owner,
-		ContentType: contentType,
-		Size:        n,
-		Public:      m.Public,
-		Slug:        m.Slug,
-	}, nil
-}
-
-func (s *Storage) Delete(_ context.Context, id, owner string) error {
-	mf, err := os.Open(s.metaPath(id))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("file not found: %s", id)
-		}
-		return fmt.Errorf("reading meta: %w", err)
-	}
-
-	var m meta
-	if err := json.NewDecoder(mf).Decode(&m); err != nil {
-		mf.Close()
-		return fmt.Errorf("decoding meta: %w", err)
-	}
-	mf.Close()
-
-	if m.Owner != owner {
-		return fmt.Errorf("permission denied")
-	}
-
-	os.Remove(s.dataPath(id))
-	os.Remove(s.metaPath(id))
 	return nil
-}
-
-func (s *Storage) SetPublic(_ context.Context, id string, public bool) error {
-	mf, err := os.Open(s.metaPath(id))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("file not found: %s", id)
-		}
-		return fmt.Errorf("reading meta: %w", err)
-	}
-
-	var m meta
-	if err := json.NewDecoder(mf).Decode(&m); err != nil {
-		mf.Close()
-		return fmt.Errorf("decoding meta: %w", err)
-	}
-	mf.Close()
-
-	m.Public = public
-
-	wf, err := os.Create(s.metaPath(id))
-	if err != nil {
-		return fmt.Errorf("writing meta: %w", err)
-	}
-	defer wf.Close()
-
-	return json.NewEncoder(wf).Encode(&m)
-}
-
-func (s *Storage) SetSlug(_ context.Context, id, owner, slug string) error {
-	mf, err := os.Open(s.metaPath(id))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("file not found: %s", id)
-		}
-		return fmt.Errorf("reading meta: %w", err)
-	}
-
-	var m meta
-	if err := json.NewDecoder(mf).Decode(&m); err != nil {
-		mf.Close()
-		return fmt.Errorf("decoding meta: %w", err)
-	}
-	mf.Close()
-
-	if m.Owner != owner {
-		return fmt.Errorf("permission denied")
-	}
-
-	m.Slug = slug
-
-	wf, err := os.Create(s.metaPath(id))
-	if err != nil {
-		return fmt.Errorf("writing meta: %w", err)
-	}
-	defer wf.Close()
-
-	return json.NewEncoder(wf).Encode(&m)
 }

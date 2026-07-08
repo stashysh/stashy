@@ -90,7 +90,7 @@ func openDB() (*db.DB, error) {
 // fileHandler serves the public file namespace at the root: /{id} or
 // /{id}/{slug}. It is registered as the catch-all so it doesn't conflict with
 // the /v1/ API subtree, so it parses the path itself.
-func fileHandler(store storage.Storage, service *service.StorageService, sessions *auth.SessionManager) http.HandlerFunc {
+func fileHandler(database *db.DB, files *service.StorageService, sessions *auth.SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.NotFound(w, r)
@@ -103,7 +103,7 @@ func fileHandler(store storage.Storage, service *service.StorageService, session
 			return
 		}
 
-		meta, err := store.Stat(r.Context(), id)
+		f, err := database.GetFile(r.Context(), id)
 		if err != nil {
 			if strings.Contains(err.Error(), "not found") {
 				http.NotFound(w, r)
@@ -114,7 +114,7 @@ func fileHandler(store storage.Storage, service *service.StorageService, session
 			return
 		}
 
-		if !meta.Public {
+		if !f.Public {
 			if _, ok := sessions.GetUserID(r); !ok {
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
@@ -124,12 +124,12 @@ func fileHandler(store storage.Storage, service *service.StorageService, session
 		// Redirect any non-matching slug (a bare /{id}, a stale slug from before
 		// a rename, or a typo) to the current canonical URL, so links shared
 		// across renames keep working.
-		if urlSlug != meta.Slug {
-			http.Redirect(w, r, canonicalPath(meta), http.StatusFound)
+		if urlSlug != f.Slug {
+			http.Redirect(w, r, canonicalPath(f), http.StatusFound)
 			return
 		}
 
-		service.ServeFile(w, r, id)
+		files.ServeFile(w, r, id)
 	}
 }
 
@@ -149,11 +149,11 @@ func splitFilePath(p string) (id, slug string, ok bool) {
 
 // canonicalPath is the canonical access path for a file: /{id}/{slug}, or
 // /{id} when it has no slug.
-func canonicalPath(meta *storage.FileMeta) string {
-	if meta.Slug != "" {
-		return "/" + meta.ID + "/" + meta.Slug
+func canonicalPath(f *db.File) string {
+	if f.Slug != "" {
+		return "/" + f.ID + "/" + f.Slug
 	}
-	return "/" + meta.ID
+	return "/" + f.ID
 }
 
 var usage = "Usage: stashy " + Version + ` <command>
@@ -245,7 +245,7 @@ func cmdServe(migrate bool) {
 
 	apiKeys := auth.NewAPIKeyHandler(database, sessions)
 
-	svc := service.New(store, hostname)
+	svc := service.New(store, database, hostname)
 	path, handler := stashyv1alpha1connect.NewStorageServiceHandler(svc, connect.WithInterceptors(validate.NewInterceptor()))
 
 	restOpts := vanguard.WithRESTUnmarshalOptions(vanguard.RESTUnmarshalOptions{
@@ -268,7 +268,7 @@ func cmdServe(migrate bool) {
 	}
 
 	apiAuth := auth.RequireAPIKey(database)
-	webUI := web.NewHandler(database, sessions)
+	webUI := web.NewHandler(database, sessions, hostname)
 
 	mux := http.NewServeMux()
 
@@ -303,8 +303,9 @@ func cmdServe(migrate bool) {
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	mux.Handle("GET /{$}", webUI)
-	mux.Handle("/", fileHandler(store, svc, sessions))
+	mux.HandleFunc("GET /{$}", webUI.FilesPage)
+	mux.HandleFunc("GET /keys", webUI.KeysPage)
+	mux.Handle("/", fileHandler(database, svc, sessions))
 
 	addr := ":" + port
 	log.Printf("listening on %s", addr)

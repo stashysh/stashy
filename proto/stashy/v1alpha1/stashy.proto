@@ -133,7 +133,10 @@ message CreateFileRequest {
 }
 
 message CreateFileResponse {
-  string id = 1 [(buf.validate.field).required = true];
+  string id = 1 [(buf.validate.field) = {
+    required: true
+    string: {pattern: "^[A-Za-z0-9_-]{21}$"}
+  }];
   string url = 2 [(buf.validate.field) = {
     required: true
     string: {uri: true}
@@ -141,7 +144,10 @@ message CreateFileResponse {
 }
 
 message GetFileRequest {
-  string id = 1 [(buf.validate.field).required = true];
+  string id = 1 [(buf.validate.field) = {
+    required: true
+    string: {pattern: "^[A-Za-z0-9_-]{21}$"}
+  }];
 }
 
 message GetFileResponse {
@@ -149,14 +155,20 @@ message GetFileResponse {
 }
 
 message ReplaceFileRequest {
-  string id = 1 [(buf.validate.field).required = true];
+  string id = 1 [(buf.validate.field) = {
+    required: true
+    string: {pattern: "^[A-Za-z0-9_-]{21}$"}
+  }];
   google.api.HttpBody file = 2 [(buf.validate.field).required = true];
 }
 
 message ReplaceFileResponse {}
 
 message UpdateFileRequest {
-  string id = 1 [(buf.validate.field).required = true];
+  string id = 1 [(buf.validate.field) = {
+    required: true
+    string: {pattern: "^[A-Za-z0-9_-]{21}$"}
+  }];
   // Human-readable slug used in the file's canonical URL (/{id}/{slug}).
   // An empty string clears it.
   optional string slug = 2 [(buf.validate.field).string = {
@@ -171,19 +183,28 @@ message UpdateFileResponse {
 }
 
 message DeleteFileRequest {
-  string id = 1 [(buf.validate.field).required = true];
+  string id = 1 [(buf.validate.field) = {
+    required: true
+    string: {pattern: "^[A-Za-z0-9_-]{21}$"}
+  }];
 }
 
 message DeleteFileResponse {}
 
 message PublishFileRequest {
-  string id = 1 [(buf.validate.field).required = true];
+  string id = 1 [(buf.validate.field) = {
+    required: true
+    string: {pattern: "^[A-Za-z0-9_-]{21}$"}
+  }];
 }
 
 message PublishFileResponse {}
 
 message UnpublishFileRequest {
-  string id = 1 [(buf.validate.field).required = true];
+  string id = 1 [(buf.validate.field) = {
+    required: true
+    string: {pattern: "^[A-Za-z0-9_-]{21}$"}
+  }];
 }
 
 message UnpublishFileResponse {}

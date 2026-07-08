@@ -1,0 +1,76 @@
+{{define "content"}}
+<div class="mb-8">
+  <h2 class="text-2xl font-bold text-gray-900 tracking-tight text-balance">Files</h2>
+</div>
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+  {{if .Files}}
+  <div class="overflow-x-auto">
+    <table class="w-full text-left text-sm whitespace-nowrap">
+      <thead class="bg-gray-50 text-gray-500 uppercase tracking-wider text-xs font-medium border-b border-gray-200">
+        <tr>
+          <th class="px-6 py-4">ID</th>
+          <th class="px-6 py-4">Slug</th>
+          <th class="px-6 py-4">Type</th>
+          <th class="px-6 py-4">Size</th>
+          <th class="px-6 py-4">Visibility</th>
+          <th class="px-6 py-4">Created</th>
+          <th class="px-6 py-4"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-200">
+        {{range .Files}}
+        <tr class="hover:bg-gray-50 transition-colors">
+          <td class="px-6 py-3"><a href="{{.Path}}" target="_blank" rel="noopener" class="text-brand-600 hover:text-brand-800 hover:underline font-mono text-xs font-medium">{{.ID}}</a></td>
+          <td class="px-6 py-3">{{if .Slug}}<code class="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-xs border border-gray-200">{{.Slug}}</code>{{else}}<span class="text-gray-400">&mdash;</span>{{end}}</td>
+          <td class="px-6 py-3"><code class="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-xs border border-gray-200">{{.ContentType}}</code></td>
+          <td class="px-6 py-3 text-gray-500 tabular-nums">{{.Size}}</td>
+          <td class="px-6 py-3">
+            {{if .Public}}
+            <span class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">Public</span>
+            {{else}}
+            <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-500/10">Private</span>
+            {{end}}
+          </td>
+          <td class="px-6 py-3 text-gray-500 tabular-nums">{{.CreatedAt}}</td>
+          <td class="px-6 py-3 text-right">
+            <button type="button" data-url="{{.URL}}" onclick="copyURL(this)" class="text-xs font-medium text-gray-500 hover:text-gray-900 border border-gray-200 hover:border-gray-300 rounded-md px-2 py-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">Copy URL</button>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{if or .Paged .NextCursor}}
+  <div class="border-t border-gray-200 bg-gray-50 px-6 py-3 flex items-center justify-between text-sm">
+    {{if .Paged}}<a href="/" class="text-brand-600 hover:text-brand-800 hover:underline font-medium">&larr; Newest</a>{{else}}<span></span>{{end}}
+    {{if .NextCursor}}<a href="/?after={{.NextCursor}}" class="text-brand-600 hover:text-brand-800 hover:underline font-medium">Older &rarr;</a>{{else}}<span></span>{{end}}
+  </div>
+  {{end}}
+  {{else if .Paged}}
+  <div class="px-6 py-12 text-center text-gray-500">
+    <p>No more files. <a href="/" class="text-brand-600 hover:text-brand-800 hover:underline font-medium">Back to newest</a></p>
+  </div>
+  {{else}}
+  <div class="px-6 py-12 text-center text-gray-500">
+    <svg aria-hidden="true" class="mx-auto h-12 w-12 text-gray-300 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
+    </svg>
+    <p class="mb-4">No files yet. Upload one with the API:</p>
+    <pre class="inline-block text-left text-xs bg-gray-900 text-gray-100 rounded-lg px-4 py-3 overflow-x-auto max-w-full"><code>curl -X POST {{.Hostname}}/v1/files \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: image/png" \
+  --data-binary @photo.png</code></pre>
+    <p class="mt-4 text-sm">Need a key? Create one in <a href="/keys" class="text-brand-600 hover:text-brand-800 hover:underline font-medium">API Keys</a>.</p>
+  </div>
+  {{end}}
+</div>
+
+<script>
+  async function copyURL(btn) {
+    await navigator.clipboard.writeText(btn.dataset.url);
+    const original = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = original, 2000);
+  }
+</script>
+{{end}}

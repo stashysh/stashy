@@ -1,0 +1,92 @@
+{{define "content"}}
+<div class="mb-8">
+  <h2 class="text-2xl font-bold text-gray-900 tracking-tight text-balance">API Keys</h2>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 shadow-sm p-6 mb-6">
+  <h3 class="text-sm font-semibold text-gray-900 mb-4">Create API key</h3>
+  <form id="create-form" class="flex gap-3">
+    <input type="text" name="label" placeholder="Key label (e.g. production)" required
+      class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500">
+    <button type="submit"
+      class="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-brand-500">Generate</button>
+  </form>
+  <div id="new-key-display" class="hidden mt-4">
+    <div class="rounded-lg border border-green-200 bg-green-50 p-4">
+      <p class="text-sm font-medium text-green-800 mb-2">Save this key &mdash; it won't be shown again:</p>
+      <div class="flex items-center gap-3">
+        <code id="new-key-value" class="flex-1 font-mono text-xs text-gray-900 break-all"></code>
+        <button type="button" onclick="copyKey()" id="copy-btn"
+          class="shrink-0 text-xs font-medium text-gray-600 hover:text-gray-900 border border-gray-300 hover:border-gray-400 bg-white rounded-md px-2 py-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">Copy</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+  {{if .Keys}}
+  <div class="overflow-x-auto">
+    <table class="w-full text-left text-sm whitespace-nowrap">
+      <thead class="bg-gray-50 text-gray-500 uppercase tracking-wider text-xs font-medium border-b border-gray-200">
+        <tr>
+          <th class="px-6 py-4">Label</th>
+          <th class="px-6 py-4">Prefix</th>
+          <th class="px-6 py-4">Created</th>
+          <th class="px-6 py-4"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-200">
+        {{range .Keys}}
+        <tr class="hover:bg-gray-50 transition-colors">
+          <td class="px-6 py-3 text-gray-900 font-medium">{{.Label}}</td>
+          <td class="px-6 py-3"><code class="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-xs border border-gray-200">{{.Prefix}}&hellip;</code></td>
+          <td class="px-6 py-3 text-gray-500 tabular-nums">{{.CreatedAt}}</td>
+          <td class="px-6 py-3 text-right">
+            <button type="button" onclick="deleteKey('{{.ID}}')"
+              class="text-xs font-medium text-red-600 hover:text-red-800 border border-red-200 hover:border-red-300 rounded-md px-2 py-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-red-500">Revoke</button>
+          </td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+  {{else}}
+  <div class="px-6 py-12 text-center text-gray-500">
+    <svg aria-hidden="true" class="mx-auto h-12 w-12 text-gray-300 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
+    </svg>
+    <p>No API keys yet. Create one above.</p>
+  </div>
+  {{end}}
+</div>
+
+<script>
+  document.getElementById('create-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const form = e.target;
+    const body = new FormData(form);
+    const resp = await fetch('/auth/keys', { method: 'POST', body });
+    if (!resp.ok) { alert('Failed to create key'); return; }
+    const data = await resp.json();
+    document.getElementById('new-key-value').textContent = data.key;
+    document.getElementById('new-key-display').classList.remove('hidden');
+    form.reset();
+    setTimeout(() => location.reload(), 5000);
+  });
+
+  async function copyKey() {
+    const key = document.getElementById('new-key-value').textContent;
+    await navigator.clipboard.writeText(key);
+    const btn = document.getElementById('copy-btn');
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 2000);
+  }
+
+  async function deleteKey(id) {
+    if (!confirm('Revoke this API key?')) return;
+    const resp = await fetch('/auth/keys/' + id, { method: 'DELETE' });
+    if (resp.ok) location.reload();
+    else alert('Failed to revoke key');
+  }
+</script>
+{{end}}

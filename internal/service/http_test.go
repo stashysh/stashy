@@ -8,12 +8,15 @@ import (
 	"strings"
 	"testing"
 
+	_ "modernc.org/sqlite"
+
+	"github.com/stashysh/stashy/internal/db"
 	"github.com/stashysh/stashy/internal/storage"
 	"github.com/stashysh/stashy/internal/storage/memory"
 )
 
 func TestServeFileFullResponse(t *testing.T) {
-	svc, id := newTestService(t, "video/mp4", "0123456789")
+	svc, id := newTestService(t, memory.New(), "video/mp4", "0123456789")
 
 	req := httptest.NewRequest(http.MethodGet, "/"+id, nil)
 	rec := httptest.NewRecorder()
@@ -26,6 +29,9 @@ func TestServeFileFullResponse(t *testing.T) {
 	if got := rec.Header().Get("Accept-Ranges"); got != "bytes" {
 		t.Fatalf("Accept-Ranges = %q, want bytes", got)
 	}
+	if got := rec.Header().Get("Content-Type"); got != "video/mp4" {
+		t.Fatalf("Content-Type = %q, want video/mp4", got)
+	}
 	if got := rec.Header().Get("Content-Length"); got != "10" {
 		t.Fatalf("Content-Length = %q, want 10", got)
 	}
@@ -35,19 +41,14 @@ func TestServeFileFullResponse(t *testing.T) {
 }
 
 func TestServeFileByteRange(t *testing.T) {
-	base := memory.New()
-	meta, err := base.Put(t.Context(), "user-1", "video/mp4", strings.NewReader("0123456789"))
-	if err != nil {
-		t.Fatalf("Put: %v", err)
-	}
-	store := &rangeTrackingStore{Storage: base}
-	svc := New(store, "http://example.test")
+	store := &rangeTrackingStore{Storage: memory.New()}
+	svc, id := newTestService(t, store, "video/mp4", "0123456789")
 
-	req := httptest.NewRequest(http.MethodGet, "/"+meta.ID, nil)
+	req := httptest.NewRequest(http.MethodGet, "/"+id, nil)
 	req.Header.Set("Range", "bytes=2-5")
 	rec := httptest.NewRecorder()
 
-	svc.ServeFile(rec, req, meta.ID)
+	svc.ServeFile(rec, req, id)
 
 	if rec.Code != http.StatusPartialContent {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusPartialContent)
@@ -73,18 +74,13 @@ func TestServeFileByteRange(t *testing.T) {
 }
 
 func TestServeFileHeadDoesNotOpenBody(t *testing.T) {
-	base := memory.New()
-	meta, err := base.Put(t.Context(), "user-1", "video/mp4", strings.NewReader("0123456789"))
-	if err != nil {
-		t.Fatalf("Put: %v", err)
-	}
-	store := &rangeTrackingStore{Storage: base}
-	svc := New(store, "http://example.test")
+	store := &rangeTrackingStore{Storage: memory.New()}
+	svc, id := newTestService(t, store, "video/mp4", "0123456789")
 
-	req := httptest.NewRequest(http.MethodHead, "/"+meta.ID, nil)
+	req := httptest.NewRequest(http.MethodHead, "/"+id, nil)
 	rec := httptest.NewRecorder()
 
-	svc.ServeFile(rec, req, meta.ID)
+	svc.ServeFile(rec, req, id)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -104,19 +100,14 @@ func TestServeFileHeadDoesNotOpenBody(t *testing.T) {
 }
 
 func TestServeFileHeadByteRangeDoesNotOpenRangeBody(t *testing.T) {
-	base := memory.New()
-	meta, err := base.Put(t.Context(), "user-1", "video/mp4", strings.NewReader("0123456789"))
-	if err != nil {
-		t.Fatalf("Put: %v", err)
-	}
-	store := &rangeTrackingStore{Storage: base}
-	svc := New(store, "http://example.test")
+	store := &rangeTrackingStore{Storage: memory.New()}
+	svc, id := newTestService(t, store, "video/mp4", "0123456789")
 
-	req := httptest.NewRequest(http.MethodHead, "/"+meta.ID, nil)
+	req := httptest.NewRequest(http.MethodHead, "/"+id, nil)
 	req.Header.Set("Range", "bytes=2-5")
 	rec := httptest.NewRecorder()
 
-	svc.ServeFile(rec, req, meta.ID)
+	svc.ServeFile(rec, req, id)
 
 	if rec.Code != http.StatusPartialContent {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusPartialContent)
@@ -130,7 +121,7 @@ func TestServeFileHeadByteRangeDoesNotOpenRangeBody(t *testing.T) {
 }
 
 func TestServeFileOpenEndedByteRange(t *testing.T) {
-	svc, id := newTestService(t, "video/mp4", "0123456789")
+	svc, id := newTestService(t, memory.New(), "video/mp4", "0123456789")
 
 	req := httptest.NewRequest(http.MethodGet, "/"+id, nil)
 	req.Header.Set("Range", "bytes=7-")
@@ -150,7 +141,7 @@ func TestServeFileOpenEndedByteRange(t *testing.T) {
 }
 
 func TestServeFileSuffixByteRange(t *testing.T) {
-	svc, id := newTestService(t, "video/mp4", "0123456789")
+	svc, id := newTestService(t, memory.New(), "video/mp4", "0123456789")
 
 	req := httptest.NewRequest(http.MethodGet, "/"+id, nil)
 	req.Header.Set("Range", "bytes=-4")
@@ -170,7 +161,7 @@ func TestServeFileSuffixByteRange(t *testing.T) {
 }
 
 func TestServeFileUnsatisfiableByteRange(t *testing.T) {
-	svc, id := newTestService(t, "video/mp4", "0123456789")
+	svc, id := newTestService(t, memory.New(), "video/mp4", "0123456789")
 
 	req := httptest.NewRequest(http.MethodGet, "/"+id, nil)
 	req.Header.Set("Range", "bytes=10-20")
@@ -186,16 +177,40 @@ func TestServeFileUnsatisfiableByteRange(t *testing.T) {
 	}
 }
 
-func newTestService(t *testing.T, contentType, body string) (*StorageService, string) {
+func newTestDB(t *testing.T) *db.DB {
 	t.Helper()
 
-	store := memory.New()
-	meta, err := store.Put(t.Context(), "user-1", contentType, strings.NewReader(body))
+	database, err := db.New(t.Context(), "sqlite", "file:"+t.TempDir()+"/test.db")
 	if err != nil {
+		t.Fatalf("db.New: %v", err)
+	}
+	t.Cleanup(func() { database.Close(context.Background()) })
+
+	if err := database.Migrate(t.Context()); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	return database
+}
+
+// newTestService builds a StorageService over store with one stored file and
+// returns the service and the file's id.
+func newTestService(t *testing.T, store storage.Storage, contentType, body string) (*StorageService, string) {
+	t.Helper()
+
+	database := newTestDB(t)
+
+	id, err := storage.NewID()
+	if err != nil {
+		t.Fatalf("NewID: %v", err)
+	}
+	if _, err := store.Put(t.Context(), id, strings.NewReader(body)); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
+	if _, err := database.CreateFile(t.Context(), id, "1", contentType, int64(len(body))); err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
 
-	return New(store, "http://example.test"), meta.ID
+	return New(store, database, "http://example.test"), id
 }
 
 type rangeTrackingStore struct {
@@ -206,7 +221,7 @@ type rangeTrackingStore struct {
 	rangeLength   int64
 }
 
-func (s *rangeTrackingStore) Get(ctx context.Context, id string) (io.ReadCloser, *storage.FileMeta, error) {
+func (s *rangeTrackingStore) Get(ctx context.Context, id string) (io.ReadCloser, error) {
 	s.getCalls++
 	return s.Storage.Get(ctx, id)
 }

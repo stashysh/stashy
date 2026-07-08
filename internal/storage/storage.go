@@ -12,40 +12,21 @@ var NewID = func() (string, error) {
 	return gonanoid.New()
 }
 
-// FileMeta holds metadata about a stored file.
-type FileMeta struct {
-	ID          string
-	Owner       string
-	ContentType string
-	Size        int64
-	Public      bool
-	Slug        string
-}
-
-// Storage is the abstraction over file storage backends (memory, S3, GCS, etc.).
+// Storage is the abstraction over file byte-storage backends (memory, local
+// disk, S3, GCS). File metadata — owner, content type, size, visibility,
+// slug — lives in the database (db.File); backends only store raw bytes
+// keyed by id.
 type Storage interface {
-	// Put stores data and returns metadata about the created file.
-	Put(ctx context.Context, owner, contentType string, r io.Reader) (*FileMeta, error)
+	// Put stores data under id, overwriting any existing content, and
+	// returns the number of bytes written.
+	Put(ctx context.Context, id string, r io.Reader) (int64, error)
 
-	// Stat retrieves file metadata by ID without opening the file body.
-	Stat(ctx context.Context, id string) (*FileMeta, error)
-
-	// Get retrieves a file by ID. The caller must close the returned ReadCloser.
-	Get(ctx context.Context, id string) (io.ReadCloser, *FileMeta, error)
+	// Get retrieves a file's bytes by ID. The caller must close the returned ReadCloser.
+	Get(ctx context.Context, id string) (io.ReadCloser, error)
 
 	// GetRange retrieves a byte range by ID. The caller must close the returned ReadCloser.
 	GetRange(ctx context.Context, id string, start, length int64) (io.ReadCloser, error)
 
-	// Update replaces the content of an existing file. Returns error if not found or not owned.
-	Update(ctx context.Context, id, owner, contentType string, r io.Reader) (*FileMeta, error)
-
-	// Delete removes a file. Returns error if not found or not owned.
-	Delete(ctx context.Context, id, owner string) error
-
-	// SetPublic sets the public visibility of a file.
-	SetPublic(ctx context.Context, id string, public bool) error
-
-	// SetSlug sets the file's slug, or clears it when slug is empty.
-	// Returns error if not found or not owned.
-	SetSlug(ctx context.Context, id, owner, slug string) error
+	// Delete removes a file's bytes. Deleting a missing file is not an error.
+	Delete(ctx context.Context, id string) error
 }

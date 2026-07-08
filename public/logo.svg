@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="96 80 320 352">
+  <defs>
+    <linearGradient id="stashyGrad" gradientUnits="userSpaceOnUse" x1="128" y1="112" x2="384" y2="400">
+      <stop offset="0%" stop-color="#07C983" />
+      <stop offset="100%" stop-color="#0D9373" />
+    </linearGradient>
+  </defs>
+  <g stroke="url(#stashyGrad)" stroke-width="32" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- Proportional Isometric Cube / Stash -->
+    <path d="M128 184L256 112l128 72v144L256 400l-128-72V184z" />
+    <path d="M128 184l128 72 128-72" />
+    <path d="M256 256v144" />
+  </g>
+</svg>
