@@ -203,7 +203,7 @@ func newTestService(t *testing.T, store storage.Storage, contentType, body strin
 	if err != nil {
 		t.Fatalf("NewID: %v", err)
 	}
-	if _, err := store.Put(t.Context(), id, strings.NewReader(body)); err != nil {
+	if _, err := store.Put(t.Context(), id, contentType, strings.NewReader(body)); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	if _, err := database.CreateFile(t.Context(), id, "1", contentType, int64(len(body))); err != nil {

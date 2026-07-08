@@ -37,7 +37,7 @@ func putTestFile(t *testing.T, database *db.DB, store storage.Storage, owner, co
 	if err != nil {
 		t.Fatalf("NewID: %v", err)
 	}
-	if _, err := store.Put(t.Context(), id, strings.NewReader(body)); err != nil {
+	if _, err := store.Put(t.Context(), id, contentType, strings.NewReader(body)); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
 	f, err := database.CreateFile(t.Context(), id, owner, contentType, int64(len(body)))

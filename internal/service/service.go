@@ -72,7 +72,7 @@ func (s *StorageService) putFile(ctx context.Context, owner, contentType string,
 		return nil, fmt.Errorf("generating id: %w", err)
 	}
 
-	size, err := s.store.Put(ctx, id, r)
+	size, err := s.store.Put(ctx, id, contentType, r)
 	if err != nil {
 		return nil, err
 	}
@@ -94,7 +94,7 @@ func (s *StorageService) replaceFile(ctx context.Context, id, owner, contentType
 		return err
 	}
 
-	size, err := s.store.Put(ctx, id, r)
+	size, err := s.store.Put(ctx, id, contentType, r)
 	if err != nil {
 		return err
 	}

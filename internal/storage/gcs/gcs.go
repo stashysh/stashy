@@ -18,8 +18,9 @@ func New(client *gcstorage.Client, bucketName string) *Storage {
 	return &Storage{bucket: client.Bucket(bucketName)}
 }
 
-func (s *Storage) Put(ctx context.Context, id string, r io.Reader) (int64, error) {
+func (s *Storage) Put(ctx context.Context, id, contentType string, r io.Reader) (int64, error) {
 	w := s.bucket.Object(id).NewWriter(ctx)
+	w.ContentType = contentType
 
 	n, err := io.Copy(w, r)
 	if err != nil {

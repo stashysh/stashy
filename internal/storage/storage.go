@@ -18,8 +18,10 @@ var NewID = func() (string, error) {
 // keyed by id.
 type Storage interface {
 	// Put stores data under id, overwriting any existing content, and
-	// returns the number of bytes written.
-	Put(ctx context.Context, id string, r io.Reader) (int64, error)
+	// returns the number of bytes written. contentType is stamped on the
+	// object where the backend supports it (S3/GCS) as a write-only courtesy
+	// for direct bucket access; serving always uses the database value.
+	Put(ctx context.Context, id, contentType string, r io.Reader) (int64, error)
 
 	// Get retrieves a file's bytes by ID. The caller must close the returned ReadCloser.
 	Get(ctx context.Context, id string) (io.ReadCloser, error)
