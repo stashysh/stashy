@@ -261,9 +261,6 @@ var usePostgres bool
 func openDB(ctx context.Context) *sql.DB {
 	dsn := os.Getenv("DATABASE_URL")
 	if dsn == "" {
-		dsn = os.Getenv("DB_DSN")
-	}
-	if dsn == "" {
 		dsn = "file:stashy.db"
 	}
 
