@@ -165,6 +165,46 @@ func TestFileHandlerCanonicalizesSlug(t *testing.T) {
 	}
 }
 
+func TestFileHandlerRedirectsPrivateBrowserRequestToLogin(t *testing.T) {
+	database := newTestDB(t)
+	store := memory.New()
+	f := putTestFile(t, database, store, "1", "text/plain", "hello")
+	files := service.New(store, database, "http://example.test")
+	handler := fileHandler(database, files, auth.NewSessionManager("test-secret"))
+
+	req := httptest.NewRequest(http.MethodGet, "/"+f.ID+"?download=1", nil)
+	req.Header.Set("Accept", "text/html")
+	rec := httptest.NewRecorder()
+
+	handler(rec, req)
+
+	if rec.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusTemporaryRedirect)
+	}
+	want := "/auth/google/login?next=%2F" + f.ID + "%3Fdownload%3D1"
+	if got := rec.Header().Get("Location"); got != want {
+		t.Fatalf("Location = %q, want %q", got, want)
+	}
+}
+
+func TestFileHandlerReturnsUnauthorizedForPrivateNonBrowserRequest(t *testing.T) {
+	database := newTestDB(t)
+	store := memory.New()
+	f := putTestFile(t, database, store, "1", "text/plain", "hello")
+	files := service.New(store, database, "http://example.test")
+	handler := fileHandler(database, files, auth.NewSessionManager("test-secret"))
+
+	req := httptest.NewRequest(http.MethodGet, "/"+f.ID, nil)
+	req.Header.Set("Accept", "application/json")
+	rec := httptest.NewRecorder()
+
+	handler(rec, req)
+
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
 type rangeTrackingStore struct {
 	storage.Storage
 	getCalls      int

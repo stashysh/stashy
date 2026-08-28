@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 
 	"golang.org/x/oauth2"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/stashysh/stashy/internal/db"
 )
+
+const oauthNextCookieName = "oauth_next"
 
 type OAuthHandler struct {
 	config         *oauth2.Config
@@ -60,6 +63,20 @@ func (h *OAuthHandler) handleLogin(w http.ResponseWriter, r *http.Request) {
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})
+
+	if next := safeRedirectPath(r.URL.Query().Get("next")); next != "" {
+		http.SetCookie(w, &http.Cookie{
+			Name:     oauthNextCookieName,
+			Value:    next,
+			Path:     "/",
+			MaxAge:   300,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+		})
+	} else {
+		clearOAuthNextCookie(w)
+	}
+
 	http.Redirect(w, r, h.config.AuthCodeURL(state), http.StatusTemporaryRedirect)
 }
 
@@ -76,6 +93,13 @@ func (h *OAuthHandler) handleCallback(w http.ResponseWriter, r *http.Request) {
 		Path:   "/",
 		MaxAge: -1,
 	})
+	next := "/"
+	if nextCookie, err := r.Cookie(oauthNextCookieName); err == nil {
+		if safeNext := safeRedirectPath(nextCookie.Value); safeNext != "" {
+			next = safeNext
+		}
+	}
+	clearOAuthNextCookie(w)
 
 	code := r.URL.Query().Get("code")
 	if code == "" {
@@ -110,7 +134,7 @@ func (h *OAuthHandler) handleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.sessions.SetSession(w, user.ID)
-	http.Redirect(w, r, "/", http.StatusTemporaryRedirect)
+	http.Redirect(w, r, next, http.StatusTemporaryRedirect)
 }
 
 func (h *OAuthHandler) handleLogout(w http.ResponseWriter, r *http.Request) {
@@ -154,4 +178,26 @@ func generateState() string {
 	b := make([]byte, 16)
 	rand.Read(b)
 	return base64.URLEncoding.EncodeToString(b)
+}
+
+func safeRedirectPath(next string) string {
+	if next == "" || strings.HasPrefix(next, "//") {
+		return ""
+	}
+	u, err := url.Parse(next)
+	if err != nil || u.IsAbs() || u.Host != "" || !strings.HasPrefix(u.Path, "/") {
+		return ""
+	}
+	return u.RequestURI()
+}
+
+func clearOAuthNextCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     oauthNextCookieName,
+		Value:    "",
+		Path:     "/",
+		MaxAge:   -1,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 }

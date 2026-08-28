@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 
@@ -116,6 +117,10 @@ func fileHandler(database *db.DB, files *service.StorageService, sessions *auth.
 
 		if !f.Public {
 			if _, ok := sessions.GetUserID(r); !ok {
+				if shouldRedirectToLogin(r) {
+					http.Redirect(w, r, "/auth/google/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusTemporaryRedirect)
+					return
+				}
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
 				return
 			}
@@ -131,6 +136,14 @@ func fileHandler(database *db.DB, files *service.StorageService, sessions *auth.
 
 		files.ServeFile(w, r, id)
 	}
+}
+
+func shouldRedirectToLogin(r *http.Request) bool {
+	if r.Method != http.MethodGet {
+		return false
+	}
+	accept := r.Header.Get("Accept")
+	return accept == "" || strings.Contains(accept, "text/html")
 }
 
 // splitFilePath parses a root request path into a file id and optional slug.
