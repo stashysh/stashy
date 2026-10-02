@@ -6,12 +6,14 @@ import (
 	"io"
 	"log"
 	"strings"
+	"time"
 
 	"connectrpc.com/connect"
 	"google.golang.org/genproto/googleapis/api/httpbody"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
-	stashyv1alpha1 "github.com/stashysh/stashy/gen/stashy/v1alpha1"
-	"github.com/stashysh/stashy/gen/stashy/v1alpha1/stashyv1alpha1connect"
+	stashyv1 "github.com/stashysh/stashy/gen/stashy/v1"
+	"github.com/stashysh/stashy/gen/stashy/v1/stashyv1connect"
 	"github.com/stashysh/stashy/internal/auth"
 	"github.com/stashysh/stashy/internal/db"
 	"github.com/stashysh/stashy/internal/storage"
@@ -19,16 +21,16 @@ import (
 
 const chunkSize = 64 * 1024 // 64KB
 
-type StorageService struct {
+type FileService struct {
 	store    storage.Storage
 	db       *db.DB
 	hostname string
 }
 
-var _ stashyv1alpha1connect.StorageServiceHandler = (*StorageService)(nil)
+var _ stashyv1connect.FileServiceHandler = (*FileService)(nil)
 
-func New(store storage.Storage, database *db.DB, hostname string) *StorageService {
-	return &StorageService{store: store, db: database, hostname: strings.TrimRight(hostname, "/")}
+func New(store storage.Storage, database *db.DB, hostname string) *FileService {
+	return &FileService{store: store, db: database, hostname: strings.TrimRight(hostname, "/")}
 }
 
 // validateContentType checks and normalizes the content type from an HttpBody.
@@ -56,17 +58,31 @@ func fileError(err error) error {
 
 // canonicalURL builds the canonical public URL for a file, including its slug
 // when set.
-func (s *StorageService) canonicalURL(f *db.File) string {
+func (s *FileService) canonicalURL(f *db.File) string {
 	if f.Slug != "" {
 		return s.hostname + "/" + f.ID + "/" + f.Slug
 	}
 	return s.hostname + "/" + f.ID
 }
 
+// fileProto converts a metadata row to its API representation.
+func (s *FileService) fileProto(f *db.File) *stashyv1.File {
+	return &stashyv1.File{
+		Id:          f.ID,
+		Url:         s.canonicalURL(f),
+		ContentType: f.ContentType,
+		Size:        f.Size,
+		Public:      f.Public,
+		Slug:        f.Slug,
+		CreatedAt:   timestamppb.New(f.CreatedAt),
+		UpdatedAt:   timestamppb.New(f.UpdatedAt),
+	}
+}
+
 // putFile streams r into storage under a fresh id and records the metadata
 // row. Bytes are written first; if the insert fails the orphaned bytes are
 // removed so the database stays the source of truth.
-func (s *StorageService) putFile(ctx context.Context, owner, contentType string, r io.Reader) (*db.File, error) {
+func (s *FileService) putFile(ctx context.Context, owner, contentType string, r io.Reader) (*db.File, error) {
 	id, err := storage.NewID()
 	if err != nil {
 		return nil, fmt.Errorf("generating id: %w", err)
@@ -88,23 +104,26 @@ func (s *StorageService) putFile(ctx context.Context, owner, contentType string,
 }
 
 // replaceFile overwrites an existing file's bytes and content metadata after
-// verifying ownership.
-func (s *StorageService) replaceFile(ctx context.Context, id, owner, contentType string, r io.Reader) error {
+// verifying ownership, and returns the updated metadata row.
+func (s *FileService) replaceFile(ctx context.Context, id, owner, contentType string, r io.Reader) (*db.File, error) {
 	if err := s.db.CheckFileOwner(ctx, id, owner); err != nil {
-		return err
+		return nil, err
 	}
 
 	size, err := s.store.Put(ctx, id, contentType, r)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	return s.db.UpdateFileContent(ctx, id, owner, contentType, size)
+	if err := s.db.UpdateFileContent(ctx, id, owner, contentType, size); err != nil {
+		return nil, err
+	}
+	return s.db.GetFile(ctx, id)
 }
 
-func (s *StorageService) CreateFile(
+func (s *FileService) CreateFile(
 	ctx context.Context,
-	stream *connect.ClientStream[stashyv1alpha1.CreateFileRequest],
-) (*connect.Response[stashyv1alpha1.CreateFileResponse], error) {
+	stream *connect.ClientStream[stashyv1.CreateFileRequest],
+) (*connect.Response[stashyv1.CreateFileResponse], error) {
 	owner, _ := auth.UserIDFromContext(ctx)
 
 	// Read first chunk to get content type.
@@ -112,15 +131,15 @@ func (s *StorageService) CreateFile(
 	var firstData []byte
 	for stream.Receive() {
 		msg := stream.Msg()
-		if msg.File == nil {
+		if msg.Content == nil {
 			continue
 		}
-		ct, err := validateContentType(msg.File.ContentType)
+		ct, err := validateContentType(msg.Content.ContentType)
 		if err != nil {
 			return nil, err
 		}
 		contentType = ct
-		firstData = msg.File.Data
+		firstData = msg.Content.Data
 		break
 	}
 	if err := stream.Err(); err != nil {
@@ -150,10 +169,10 @@ func (s *StorageService) CreateFile(
 
 	for stream.Receive() {
 		msg := stream.Msg()
-		if msg.File == nil {
+		if msg.Content == nil {
 			continue
 		}
-		if _, err := pw.Write(msg.File.Data); err != nil {
+		if _, err := pw.Write(msg.Content.Data); err != nil {
 			pw.Close()
 			<-done
 			return nil, connect.NewError(connect.CodeInternal, err)
@@ -172,16 +191,15 @@ func (s *StorageService) CreateFile(
 		return nil, connect.NewError(connect.CodeInternal, putResult.err)
 	}
 
-	return connect.NewResponse(&stashyv1alpha1.CreateFileResponse{
-		Id:  putResult.file.ID,
-		Url: s.hostname + "/" + putResult.file.ID,
+	return connect.NewResponse(&stashyv1.CreateFileResponse{
+		File: s.fileProto(putResult.file),
 	}), nil
 }
 
-func (s *StorageService) ReplaceFile(
+func (s *FileService) ReplaceFile(
 	ctx context.Context,
-	stream *connect.ClientStream[stashyv1alpha1.ReplaceFileRequest],
-) (*connect.Response[stashyv1alpha1.ReplaceFileResponse], error) {
+	stream *connect.ClientStream[stashyv1.ReplaceFileRequest],
+) (*connect.Response[stashyv1.ReplaceFileResponse], error) {
 	owner, ok := auth.UserIDFromContext(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
@@ -198,24 +216,25 @@ func (s *StorageService) ReplaceFile(
 	}
 
 	var ct string
-	if msg.File != nil {
-		ct = msg.File.ContentType
+	if msg.Content != nil {
+		ct = msg.Content.ContentType
 	}
 	contentType, err := validateContentType(ct)
 	if err != nil {
 		return nil, err
 	}
 	var firstData []byte
-	if msg.File != nil {
-		firstData = msg.File.Data
+	if msg.Content != nil {
+		firstData = msg.Content.Data
 	}
 
 	pr, pw := io.Pipe()
+	var updated *db.File
 	var updateErr error
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		updateErr = s.replaceFile(ctx, id, owner, contentType, pr)
+		updated, updateErr = s.replaceFile(ctx, id, owner, contentType, pr)
 		// Drain the pipe on early failure (e.g. ownership check) so the
 		// writer side doesn't block forever.
 		if updateErr != nil {
@@ -233,10 +252,10 @@ func (s *StorageService) ReplaceFile(
 
 	for stream.Receive() {
 		msg := stream.Msg()
-		if msg.File == nil {
+		if msg.Content == nil {
 			continue
 		}
-		if _, err := pw.Write(msg.File.Data); err != nil {
+		if _, err := pw.Write(msg.Content.Data); err != nil {
 			pw.Close()
 			<-done
 			return nil, connect.NewError(connect.CodeInternal, err)
@@ -255,14 +274,16 @@ func (s *StorageService) ReplaceFile(
 		return nil, fileError(updateErr)
 	}
 
-	return connect.NewResponse(&stashyv1alpha1.ReplaceFileResponse{}), nil
+	return connect.NewResponse(&stashyv1.ReplaceFileResponse{
+		File: s.fileProto(updated),
+	}), nil
 }
 
 // UpdateFile updates a file's mutable fields. Currently only the slug.
-func (s *StorageService) UpdateFile(
+func (s *FileService) UpdateFile(
 	ctx context.Context,
-	req *connect.Request[stashyv1alpha1.UpdateFileRequest],
-) (*connect.Response[stashyv1alpha1.UpdateFileResponse], error) {
+	req *connect.Request[stashyv1.UpdateFileRequest],
+) (*connect.Response[stashyv1.UpdateFileResponse], error) {
 	owner, ok := auth.UserIDFromContext(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
@@ -281,20 +302,21 @@ func (s *StorageService) UpdateFile(
 		}
 	}
 
-	f, err := s.db.GetFile(ctx, id)
+	// SetFileSlug checks ownership, but an update with no fields skips it.
+	f, err := s.ownedFile(ctx, id, owner)
 	if err != nil {
 		return nil, fileError(err)
 	}
 
-	return connect.NewResponse(&stashyv1alpha1.UpdateFileResponse{
-		Url: s.canonicalURL(f),
+	return connect.NewResponse(&stashyv1.UpdateFileResponse{
+		File: s.fileProto(f),
 	}), nil
 }
 
-func (s *StorageService) DeleteFile(
+func (s *FileService) DeleteFile(
 	ctx context.Context,
-	req *connect.Request[stashyv1alpha1.DeleteFileRequest],
-) (*connect.Response[stashyv1alpha1.DeleteFileResponse], error) {
+	req *connect.Request[stashyv1.DeleteFileRequest],
+) (*connect.Response[stashyv1.DeleteFileResponse], error) {
 	owner, ok := auth.UserIDFromContext(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
@@ -308,13 +330,13 @@ func (s *StorageService) DeleteFile(
 	if err := s.store.Delete(ctx, req.Msg.Id); err != nil {
 		log.Printf("deleting bytes for %s: %v", req.Msg.Id, err)
 	}
-	return connect.NewResponse(&stashyv1alpha1.DeleteFileResponse{}), nil
+	return connect.NewResponse(&stashyv1.DeleteFileResponse{}), nil
 }
 
-func (s *StorageService) PublishFile(
+func (s *FileService) PublishFile(
 	ctx context.Context,
-	req *connect.Request[stashyv1alpha1.PublishFileRequest],
-) (*connect.Response[stashyv1alpha1.PublishFileResponse], error) {
+	req *connect.Request[stashyv1.PublishFileRequest],
+) (*connect.Response[stashyv1.PublishFileResponse], error) {
 	owner, ok := auth.UserIDFromContext(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
@@ -323,13 +345,13 @@ func (s *StorageService) PublishFile(
 	if err := s.db.SetFilePublic(ctx, req.Msg.Id, owner, true); err != nil {
 		return nil, fileError(err)
 	}
-	return connect.NewResponse(&stashyv1alpha1.PublishFileResponse{}), nil
+	return connect.NewResponse(&stashyv1.PublishFileResponse{}), nil
 }
 
-func (s *StorageService) UnpublishFile(
+func (s *FileService) UnpublishFile(
 	ctx context.Context,
-	req *connect.Request[stashyv1alpha1.UnpublishFileRequest],
-) (*connect.Response[stashyv1alpha1.UnpublishFileResponse], error) {
+	req *connect.Request[stashyv1.UnpublishFileRequest],
+) (*connect.Response[stashyv1.UnpublishFileResponse], error) {
 	owner, ok := auth.UserIDFromContext(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
@@ -338,15 +360,94 @@ func (s *StorageService) UnpublishFile(
 	if err := s.db.SetFilePublic(ctx, req.Msg.Id, owner, false); err != nil {
 		return nil, fileError(err)
 	}
-	return connect.NewResponse(&stashyv1alpha1.UnpublishFileResponse{}), nil
+	return connect.NewResponse(&stashyv1.UnpublishFileResponse{}), nil
 }
 
-func (s *StorageService) GetFile(
+const defaultListLimit = 50
+
+// ListFiles returns a page of the caller's files, newest first. The after
+// cursor is a file id; its created_at anchors the keyset query.
+func (s *FileService) ListFiles(
 	ctx context.Context,
-	req *connect.Request[stashyv1alpha1.GetFileRequest],
-	stream *connect.ServerStream[stashyv1alpha1.GetFileResponse],
+	req *connect.Request[stashyv1.ListFilesRequest],
+) (*connect.Response[stashyv1.ListFilesResponse], error) {
+	owner, ok := auth.UserIDFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+	}
+
+	limit := defaultListLimit
+	if req.Msg.Limit != nil {
+		limit = int(*req.Msg.Limit)
+	}
+
+	var afterTime time.Time
+	var afterID string
+	if req.Msg.After != nil {
+		// A missing or foreign cursor file is reported the same way so the
+		// response doesn't reveal whether another user's id exists.
+		f, err := s.db.GetFile(ctx, *req.Msg.After)
+		if err != nil && !strings.Contains(err.Error(), "not found") {
+			return nil, connect.NewError(connect.CodeInternal, err)
+		}
+		if err != nil || f.Owner != owner {
+			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("after: file not found"))
+		}
+		afterTime, afterID = f.CreatedAt, f.ID
+	}
+
+	files, err := s.db.ListFiles(ctx, owner, limit, afterTime, afterID)
+	if err != nil {
+		return nil, connect.NewError(connect.CodeInternal, err)
+	}
+
+	resp := &stashyv1.ListFilesResponse{Files: make([]*stashyv1.File, 0, len(files))}
+	for i := range files {
+		resp.Files = append(resp.Files, s.fileProto(&files[i]))
+	}
+	return connect.NewResponse(resp), nil
+}
+
+// ownedFile returns id's metadata row if owner owns it, with errors matching
+// the db-layer conventions ("file not found", "permission denied").
+func (s *FileService) ownedFile(ctx context.Context, id, owner string) (*db.File, error) {
+	f, err := s.db.GetFile(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if f.Owner != owner {
+		return nil, fmt.Errorf("permission denied")
+	}
+	return f, nil
+}
+
+func (s *FileService) GetFile(
+	ctx context.Context,
+	req *connect.Request[stashyv1.GetFileRequest],
+) (*connect.Response[stashyv1.GetFileResponse], error) {
+	owner, ok := auth.UserIDFromContext(ctx)
+	if !ok {
+		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+	}
+
+	f, err := s.ownedFile(ctx, req.Msg.Id, owner)
+	if err != nil {
+		return nil, fileError(err)
+	}
+	return connect.NewResponse(&stashyv1.GetFileResponse{File: s.fileProto(f)}), nil
+}
+
+func (s *FileService) GetFileContent(
+	ctx context.Context,
+	req *connect.Request[stashyv1.GetFileContentRequest],
+	stream *connect.ServerStream[stashyv1.GetFileContentResponse],
 ) error {
-	f, err := s.db.GetFile(ctx, req.Msg.Id)
+	owner, ok := auth.UserIDFromContext(ctx)
+	if !ok {
+		return connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+	}
+
+	f, err := s.ownedFile(ctx, req.Msg.Id, owner)
 	if err != nil {
 		return fileError(err)
 	}
@@ -366,13 +467,13 @@ func (s *StorageService) GetFile(
 	for {
 		n, readErr := rc.Read(buf)
 		if n > 0 {
-			chunk := &stashyv1alpha1.GetFileResponse{
-				File: &httpbody.HttpBody{
+			chunk := &stashyv1.GetFileContentResponse{
+				Content: &httpbody.HttpBody{
 					Data: buf[:n],
 				},
 			}
 			if first {
-				chunk.File.ContentType = f.ContentType
+				chunk.Content.ContentType = f.ContentType
 				first = false
 			}
 			if err := stream.Send(chunk); err != nil {

@@ -192,9 +192,9 @@ func newTestDB(t *testing.T) *db.DB {
 	return database
 }
 
-// newTestService builds a StorageService over store with one stored file and
+// newTestService builds a FileService over store with one stored file and
 // returns the service and the file's id.
-func newTestService(t *testing.T, store storage.Storage, contentType, body string) (*StorageService, string) {
+func newTestService(t *testing.T, store storage.Storage, contentType, body string) (*FileService, string) {
 	t.Helper()
 
 	database := newTestDB(t)

@@ -1,7 +1,6 @@
 package service
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -9,13 +8,16 @@ import (
 	"strconv"
 	"strings"
 
+	"google.golang.org/protobuf/encoding/protojson"
+
 	"github.com/stashysh/stashy/internal/auth"
+	"github.com/stashysh/stashy/internal/db"
 )
 
 // ServeFile fetches id and streams it directly to w. Metadata (content type,
 // size) comes from the database; storage is only touched for the bytes.
 // The caller is responsible for any authorization checks before calling this.
-func (s *StorageService) ServeFile(w http.ResponseWriter, r *http.Request, id string) {
+func (s *FileService) ServeFile(w http.ResponseWriter, r *http.Request, id string) {
 	f, err := s.db.GetFile(r.Context(), id)
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
@@ -56,7 +58,7 @@ func (s *StorageService) ServeFile(w http.ResponseWriter, r *http.Request, id st
 
 // serveFileRange handles Range requests. Content-Type and Accept-Ranges are
 // already set by ServeFile.
-func (s *StorageService) serveFileRange(w http.ResponseWriter, r *http.Request, id string, size int64, rangeHeader string) {
+func (s *FileService) serveFileRange(w http.ResponseWriter, r *http.Request, id string, size int64, rangeHeader string) {
 	byteRange, err := parseByteRange(rangeHeader, size)
 	if err != nil {
 		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", size))
@@ -139,16 +141,37 @@ func parseByteRange(header string, size int64) (byteRange, error) {
 	return byteRange{start: start, end: end}, nil
 }
 
-// HTTPDownload handles GET /v1/files/{id} directly, bypassing Vanguard.
-// Auth is expected to be enforced by upstream middleware.
-func (s *StorageService) HTTPDownload(w http.ResponseWriter, r *http.Request) {
-	s.ServeFile(w, r, r.PathValue("id"))
+// HTTPDownload handles GET /v1/files/{id}/content directly, bypassing
+// Vanguard. Authentication is enforced by upstream middleware; ownership is
+// checked here.
+func (s *FileService) HTTPDownload(w http.ResponseWriter, r *http.Request) {
+	owner, ok := auth.UserIDFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	id := r.PathValue("id")
+	if err := s.db.CheckFileOwner(r.Context(), id, owner); err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			http.NotFound(w, r)
+			return
+		}
+		if strings.Contains(err.Error(), "permission denied") {
+			http.Error(w, "permission denied", http.StatusForbidden)
+			return
+		}
+		log.Printf("HTTPDownload %s: %v", id, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	s.ServeFile(w, r, id)
 }
 
 // HTTPUpload handles POST /v1/files directly, bypassing Vanguard.
 // Streaming r.Body straight to storage avoids the full-body buffering that
 // Vanguard does when transcoding HttpBody RPCs (see github.com/stashysh/stashy/issues/23).
-func (s *StorageService) HTTPUpload(w http.ResponseWriter, r *http.Request) {
+func (s *FileService) HTTPUpload(w http.ResponseWriter, r *http.Request) {
 	owner, _ := auth.UserIDFromContext(r.Context())
 
 	ct, err := validateContentType(r.Header.Get("Content-Type"))
@@ -164,15 +187,11 @@ func (s *StorageService) HTTPUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(struct {
-		ID  string `json:"id"`
-		URL string `json:"url"`
-	}{ID: f.ID, URL: s.hostname + "/" + f.ID})
+	s.writeFileJSON(w, f)
 }
 
 // HTTPReplace handles PUT /v1/files/{id} directly, bypassing Vanguard.
-func (s *StorageService) HTTPReplace(w http.ResponseWriter, r *http.Request) {
+func (s *FileService) HTTPReplace(w http.ResponseWriter, r *http.Request) {
 	owner, ok := auth.UserIDFromContext(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -191,7 +210,8 @@ func (s *StorageService) HTTPReplace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := s.replaceFile(r.Context(), id, owner, ct, r.Body); err != nil {
+	f, err := s.replaceFile(r.Context(), id, owner, ct, r.Body)
+	if err != nil {
 		if strings.Contains(err.Error(), "not found") {
 			http.NotFound(w, r)
 			return
@@ -205,6 +225,22 @@ func (s *StorageService) HTTPReplace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	s.writeFileJSON(w, f)
+}
+
+// fileJSON matches the Vanguard JSON codec options in cmd/stashy, so the
+// direct handlers return the same body as the transcoded RPCs.
+var fileJSON = protojson.MarshalOptions{UseProtoNames: true, EmitUnpopulated: true}
+
+// writeFileJSON writes f as the REST body of a file-returning RPC, which is
+// the bare File (response_body: "file").
+func (s *FileService) writeFileJSON(w http.ResponseWriter, f *db.File) {
+	b, err := fileJSON.Marshal(s.fileProto(f))
+	if err != nil {
+		log.Printf("marshaling file %s: %v", f.ID, err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
-	w.Write([]byte("{}"))
+	w.Write(b)
 }
