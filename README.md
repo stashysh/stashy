@@ -212,6 +212,17 @@ curl -H "Authorization: Bearer <api-key>" \
 
 Only the file owner can unpublish it.
 
+## MCP
+
+Stashy serves a [Model Context Protocol](https://modelcontextprotocol.io) server at `/mcp`, so AI assistants can work with your files. It uses the same API keys as the REST API.
+
+```bash
+claude mcp add --transport http stashy http://localhost:8080/mcp \
+  --header "Authorization: Bearer <api-key>"
+```
+
+Tools: `list_files`, `get_file`, `update_file`, `publish_file`, `unpublish_file`, `delete_file`. They work with file metadata; to upload or download content, use the REST API.
+
 ## File access
 
 ```bash

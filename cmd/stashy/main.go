@@ -295,6 +295,9 @@ func cmdServe(migrate bool) {
 	mux.Handle("GET /v1/files/{id}/content", apiAuth(http.HandlerFunc(svc.HTTPDownload)))
 
 	mux.Handle("/v1/", apiAuth(transcoder))
+	// MCP authenticates with the same API keys, via the SDK's bearer-token
+	// middleware.
+	mux.Handle("/mcp", svc.MCPHandler(database, Version))
 	mux.Handle(path, apiAuth(transcoder))
 
 	publicFS := http.FileServer(http.Dir("public"))
