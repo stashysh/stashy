@@ -82,6 +82,8 @@
   </main>
   <footer class="border-t border-gray-200 py-6 text-center text-sm text-gray-500 mt-auto">
     <p><a href="/openapi.yaml" class="hover:text-gray-900 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-gray-400 rounded-sm">API Spec</a></p>
+    {{- $v := version}}
+    <p class="mt-1 text-xs text-gray-400">{{if eq $v "dev"}}dev{{else}}v{{$v}}{{end}}</p>
   </footer>
 
   <script>

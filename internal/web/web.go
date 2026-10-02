@@ -21,20 +21,25 @@ type Handler struct {
 	db       *db.DB
 	sessions *auth.SessionManager
 	hostname string
+	version  string
 	login    *template.Template            // standalone pages
 	pages    map[string]*template.Template // layout-composed pages
 }
 
-func NewHandler(database *db.DB, sessions *auth.SessionManager, hostname string) *Handler {
+// NewHandler builds the web UI. version is the server build version ("dev"
+// for local builds); it is shown to signed-in users only.
+func NewHandler(database *db.DB, sessions *auth.SessionManager, hostname, version string) *Handler {
 	h := &Handler{
 		db:       database,
 		sessions: sessions,
 		hostname: strings.TrimRight(hostname, "/"),
+		version:  version,
 		login:    template.Must(template.ParseFS(templateFS, "templates/login.html")),
 		pages:    map[string]*template.Template{},
 	}
+	funcs := template.FuncMap{"version": func() string { return h.version }}
 	for _, p := range []string{"files", "apikeys"} {
-		h.pages[p] = template.Must(template.ParseFS(
+		h.pages[p] = template.Must(template.New("layout.html").Funcs(funcs).ParseFS(
 			templateFS,
 			"templates/layout.html",
 			"templates/"+p+".html",

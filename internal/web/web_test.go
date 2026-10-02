@@ -44,7 +44,7 @@ func sessionRequest(t *testing.T, sessions *auth.SessionManager, target, userID 
 func TestFilesPageShowsLoginWithoutSession(t *testing.T) {
 	database := newTestDB(t)
 	sessions := auth.NewSessionManager("test-secret")
-	h := NewHandler(database, sessions, "http://example.test")
+	h := NewHandler(database, sessions, "http://example.test", "dev")
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
@@ -62,7 +62,7 @@ func TestFilesPageShowsLoginWithoutSession(t *testing.T) {
 func TestFilesPageListsFiles(t *testing.T) {
 	database := newTestDB(t)
 	sessions := auth.NewSessionManager("test-secret")
-	h := NewHandler(database, sessions, "http://example.test")
+	h := NewHandler(database, sessions, "http://example.test", "dev")
 
 	user, err := database.UpsertUser(t.Context(), "g-1", "alice@example.com", "Alice")
 	if err != nil {
@@ -94,7 +94,7 @@ func TestFilesPageListsFiles(t *testing.T) {
 func TestKeysPageListsKeys(t *testing.T) {
 	database := newTestDB(t)
 	sessions := auth.NewSessionManager("test-secret")
-	h := NewHandler(database, sessions, "http://example.test")
+	h := NewHandler(database, sessions, "http://example.test", "dev")
 
 	user, err := database.UpsertUser(t.Context(), "g-1", "alice@example.com", "Alice")
 	if err != nil {
@@ -133,6 +133,36 @@ func TestFormatSize(t *testing.T) {
 	for _, tc := range cases {
 		if got := formatSize(tc.n); got != tc.want {
 			t.Errorf("formatSize(%d) = %q, want %q", tc.n, got, tc.want)
+		}
+	}
+}
+
+func TestFooterShowsVersionToSignedInUsers(t *testing.T) {
+	database := newTestDB(t)
+	sessions := auth.NewSessionManager("test-secret")
+	user, err := database.UpsertUser(t.Context(), "g-1", "alice@example.com", "Alice")
+	if err != nil {
+		t.Fatalf("UpsertUser: %v", err)
+	}
+
+	for _, tc := range []struct {
+		version, want string
+	}{
+		{"0.9.2", ">v0.9.2</p>"},
+		{"dev", ">dev</p>"},
+	} {
+		h := NewHandler(database, sessions, "http://example.test", tc.version)
+
+		rec := httptest.NewRecorder()
+		h.KeysPage(rec, sessionRequest(t, sessions, "/keys", user.ID))
+		if !strings.Contains(rec.Body.String(), tc.want) {
+			t.Errorf("version %s: keys page missing %q", tc.version, tc.want)
+		}
+
+		rec = httptest.NewRecorder()
+		h.FilesPage(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		if strings.Contains(rec.Body.String(), tc.want) {
+			t.Errorf("version %s: login page shows the version", tc.version)
 		}
 	}
 }

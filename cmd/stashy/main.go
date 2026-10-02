@@ -281,7 +281,7 @@ func cmdServe(migrate bool) {
 	}
 
 	apiAuth := auth.RequireAPIKey(database)
-	webUI := web.NewHandler(database, sessions, hostname)
+	webUI := web.NewHandler(database, sessions, hostname, Version)
 
 	mux := http.NewServeMux()
 
