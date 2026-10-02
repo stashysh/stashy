@@ -1,20 +1,43 @@
 syntax = "proto3";
 
-package stashy.v1alpha1;
+package stashy.v1;
 
 import "buf/validate/validate.proto";
 import "gnostic/openapi/v3/annotations.proto";
 import "google/api/annotations.proto";
 import "google/api/httpbody.proto";
+import "google/protobuf/timestamp.proto";
 
-option go_package = "github.com/stashysh/stashy/gen/stashy/v1alpha1;stashyv1alpha1";
+option go_package = "github.com/stashysh/stashy/gen/stashy/v1;stashyv1";
 
-service StorageService {
+message File {
+  string id = 1 [(buf.validate.field) = {
+    required: true
+    string: {pattern: "^[A-Za-z0-9_-]{21}$"}
+  }];
+  // Canonical URL of the file, including the slug when set.
+  string url = 2 [(buf.validate.field) = {
+    required: true
+    string: {uri: true}
+  }];
+  string content_type = 3 [(buf.validate.field).required = true];
+  int64 size = 4 [(buf.validate.field).int64.gte = 0];
+  bool public = 5;
+  string slug = 6 [(buf.validate.field).string = {
+    pattern: "^[A-Za-z0-9._~-]*$"
+    max_len: 128
+  }];
+  google.protobuf.Timestamp created_at = 7 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp updated_at = 8 [(buf.validate.field).required = true];
+}
+
+service FileService {
   // Upload a file to storage.
   rpc CreateFile(stream CreateFileRequest) returns (CreateFileResponse) {
     option (google.api.http) = {
       post: "/v1/files"
-      body: "file"
+      body: "content"
+      response_body: "file"
     };
     option (gnostic.openapi.v3.operation) = {
       request_body: {
@@ -37,11 +60,19 @@ service StorageService {
     };
   }
 
-  // Download a file from storage.
-  rpc GetFile(GetFileRequest) returns (stream GetFileResponse) {
+  // Get a file's metadata.
+  rpc GetFile(GetFileRequest) returns (GetFileResponse) {
     option (google.api.http) = {
       get: "/v1/files/{id}"
       response_body: "file"
+    };
+  }
+
+  // Download a file's content.
+  rpc GetFileContent(GetFileContentRequest) returns (stream GetFileContentResponse) {
+    option (google.api.http) = {
+      get: "/v1/files/{id}/content"
+      response_body: "content"
     };
     option (gnostic.openapi.v3.operation) = {
       responses: {
@@ -49,7 +80,6 @@ service StorageService {
           name: "200"
           value: {
             response: {
-              description: "File content"
               content: {
                 additional_properties: {
                   name: "*/*"
@@ -70,11 +100,21 @@ service StorageService {
     };
   }
 
-  // Replace the content of an existing file. Only the owner can update.
+  // List the caller's files, newest first. Pass the last file's id as
+  // after to fetch the next page; a page shorter than limit is the last.
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse) {
+    option (google.api.http) = {
+      get: "/v1/files"
+      response_body: "files"
+    };
+  }
+
+  // Replace the content of an existing file.
   rpc ReplaceFile(stream ReplaceFileRequest) returns (ReplaceFileResponse) {
     option (google.api.http) = {
       put: "/v1/files/{id}"
-      body: "file"
+      body: "content"
+      response_body: "file"
     };
     option (gnostic.openapi.v3.operation) = {
       request_body: {
@@ -97,12 +137,13 @@ service StorageService {
     };
   }
 
-  // Update a file. Only the owner can update. Fields are optional: an absent
-  // field is left unchanged, an empty value clears it.
+  // Update a file. Fields are optional: an absent field is left unchanged,
+  // an empty value clears it.
   rpc UpdateFile(UpdateFileRequest) returns (UpdateFileResponse) {
     option (google.api.http) = {
       patch: "/v1/files/{id}"
       body: "*"
+      response_body: "file"
     };
   }
 
@@ -122,25 +163,18 @@ service StorageService {
     };
   }
 
-  // Delete a file. Only the owner can delete.
+  // Delete a file.
   rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse) {
     option (google.api.http) = {delete: "/v1/files/{id}"};
   }
 }
 
 message CreateFileRequest {
-  google.api.HttpBody file = 1 [(buf.validate.field).required = true];
+  google.api.HttpBody content = 1 [(buf.validate.field).required = true];
 }
 
 message CreateFileResponse {
-  string id = 1 [(buf.validate.field) = {
-    required: true
-    string: {pattern: "^[A-Za-z0-9_-]{21}$"}
-  }];
-  string url = 2 [(buf.validate.field) = {
-    required: true
-    string: {uri: true}
-  }];
+  File file = 1 [(buf.validate.field).required = true];
 }
 
 message GetFileRequest {
@@ -151,7 +185,33 @@ message GetFileRequest {
 }
 
 message GetFileResponse {
-  google.api.HttpBody file = 1 [(buf.validate.field).required = true];
+  File file = 1 [(buf.validate.field).required = true];
+}
+
+message GetFileContentRequest {
+  string id = 1 [(buf.validate.field) = {
+    required: true
+    string: {pattern: "^[A-Za-z0-9_-]{21}$"}
+  }];
+}
+
+message GetFileContentResponse {
+  google.api.HttpBody content = 1 [(buf.validate.field).required = true];
+}
+
+message ListFilesRequest {
+  // Maximum number of files to return. Absent means 50.
+  optional int32 limit = 1 [(buf.validate.field).int32 = {
+    gte: 1
+    lte: 100
+  }];
+  // ID of the last file from the previous page. Absent means the first page.
+  optional string after = 2 [(buf.validate.field).string = {pattern: "^[A-Za-z0-9_-]{21}$"}];
+}
+
+message ListFilesResponse {
+  // Newest first.
+  repeated File files = 1;
 }
 
 message ReplaceFileRequest {
@@ -159,10 +219,12 @@ message ReplaceFileRequest {
     required: true
     string: {pattern: "^[A-Za-z0-9_-]{21}$"}
   }];
-  google.api.HttpBody file = 2 [(buf.validate.field).required = true];
+  google.api.HttpBody content = 2 [(buf.validate.field).required = true];
 }
 
-message ReplaceFileResponse {}
+message ReplaceFileResponse {
+  File file = 1 [(buf.validate.field).required = true];
+}
 
 message UpdateFileRequest {
   string id = 1 [(buf.validate.field) = {
@@ -178,10 +240,7 @@ message UpdateFileRequest {
 }
 
 message UpdateFileResponse {
-  // Canonical URL of the file after the update.
-  string url = 1 [(buf.validate.field) = {
-    string: {uri: true}
-  }];
+  File file = 1 [(buf.validate.field).required = true];
 }
 
 message DeleteFileRequest {

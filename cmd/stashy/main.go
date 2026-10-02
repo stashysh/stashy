@@ -23,7 +23,7 @@ import (
 	"github.com/joho/godotenv"
 	_ "modernc.org/sqlite"
 
-	"github.com/stashysh/stashy/gen/stashy/v1alpha1/stashyv1alpha1connect"
+	"github.com/stashysh/stashy/gen/stashy/v1/stashyv1connect"
 	"github.com/stashysh/stashy/internal/auth"
 	"github.com/stashysh/stashy/internal/db"
 	"github.com/stashysh/stashy/internal/service"
@@ -91,7 +91,7 @@ func openDB() (*db.DB, error) {
 // fileHandler serves the public file namespace at the root: /{id} or
 // /{id}/{slug}. It is registered as the catch-all so it doesn't conflict with
 // the /v1/ API subtree, so it parses the path itself.
-func fileHandler(database *db.DB, files *service.StorageService, sessions *auth.SessionManager) http.HandlerFunc {
+func fileHandler(database *db.DB, files *service.FileService, sessions *auth.SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			http.NotFound(w, r)
@@ -259,7 +259,7 @@ func cmdServe(migrate bool) {
 	apiKeys := auth.NewAPIKeyHandler(database, sessions)
 
 	svc := service.New(store, database, hostname)
-	path, handler := stashyv1alpha1connect.NewStorageServiceHandler(svc, connect.WithInterceptors(validate.NewInterceptor()))
+	path, handler := stashyv1connect.NewFileServiceHandler(svc, connect.WithInterceptors(validate.NewInterceptor()))
 
 	restOpts := vanguard.WithRESTUnmarshalOptions(vanguard.RESTUnmarshalOptions{
 		DiscardUnknownQueryParams: true,
@@ -291,8 +291,8 @@ func cmdServe(migrate bool) {
 	// Register direct handlers for upload/download before Vanguard to bypass its
 	// full-body buffering of HttpBody RPCs (see github.com/stashysh/stashy/issues/23).
 	mux.Handle("POST /v1/files", apiAuth(http.HandlerFunc(svc.HTTPUpload)))
-	mux.Handle("GET /v1/files/{id}", apiAuth(http.HandlerFunc(svc.HTTPDownload)))
 	mux.Handle("PUT /v1/files/{id}", apiAuth(http.HandlerFunc(svc.HTTPReplace)))
+	mux.Handle("GET /v1/files/{id}/content", apiAuth(http.HandlerFunc(svc.HTTPDownload)))
 
 	mux.Handle("/v1/", apiAuth(transcoder))
 	mux.Handle(path, apiAuth(transcoder))

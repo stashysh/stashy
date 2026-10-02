@@ -91,7 +91,7 @@ curl -H "Authorization: Bearer <api-key>" \
   --data-binary @photo.png
 ```
 
-Files are private by default. Use `POST /v1/files/{id}/publish` to make a file publicly accessible at `/{id}`. Logged-in users can access any file via direct link.
+Files are private by default. Use `POST /v1/files/{id}/publish` to make a file publicly accessible at `/{id}`. Logged-in users can access any file via direct link. The API only gives access to your own files.
 
 Set `ALLOWED_DOMAINS` to restrict login to specific email domains.
 
@@ -117,12 +117,50 @@ curl -H "Authorization: Bearer <api-key>" \
   --data-binary @photo.png
 ```
 
-### Download a file
+Upload, replace, and update return the file's metadata:
+
+```json
+{
+  "id": "V1StGXR8_Z5jdHi6B-myT",
+  "url": "http://localhost:8080/V1StGXR8_Z5jdHi6B-myT",
+  "content_type": "image/png",
+  "size": "48213",
+  "public": false,
+  "slug": "",
+  "created_at": "2026-10-02T12:00:00Z",
+  "updated_at": "2026-10-02T12:00:00Z"
+}
+```
+
+`size` is a string, as protobuf JSON encodes 64-bit integers.
+
+### List files
+
+```bash
+curl -H "Authorization: Bearer <api-key>" \
+  "http://localhost:8080/v1/files?limit=50"
+```
+
+Returns a JSON array of your files, newest first. To get the next page, pass
+the last file's `id` as `after`; a page shorter than `limit` is the last.
+
+### Get a file
 
 ```bash
 curl -H "Authorization: Bearer <api-key>" \
   http://localhost:8080/v1/files/{id}
 ```
+
+Returns the file's metadata. Only the file owner can get it.
+
+### Download a file
+
+```bash
+curl -H "Authorization: Bearer <api-key>" \
+  -o photo.png http://localhost:8080/v1/files/{id}/content
+```
+
+Supports `Range` requests. Only the file owner can download it.
 
 ### Replace a file
 
@@ -163,12 +201,16 @@ curl -H "Authorization: Bearer <api-key>" \
   -X POST http://localhost:8080/v1/files/{id}/publish
 ```
 
+Only the file owner can publish it.
+
 ### Unpublish a file
 
 ```bash
 curl -H "Authorization: Bearer <api-key>" \
   -X POST http://localhost:8080/v1/files/{id}/unpublish
 ```
+
+Only the file owner can unpublish it.
 
 ## File access
 
