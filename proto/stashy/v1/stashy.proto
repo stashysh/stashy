@@ -66,6 +66,16 @@ service FileService {
     };
   }
 
+  // List your files, newest first. To get the next page, pass the last
+  // file's ID as after. A page shorter than limit is the last one.
+  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+    option (google.api.http) = {
+      get: "/v1/files"
+      response_body: "files"
+    };
+  }
+
   // Get a file's metadata.
   rpc GetFile(GetFileRequest) returns (GetFileResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
@@ -108,21 +118,23 @@ service FileService {
     };
   }
 
-  // List your files, newest first. To get the next page, pass the last
-  // file's ID as after. A page shorter than limit is the last one.
-  rpc ListFiles(ListFilesRequest) returns (ListFilesResponse) {
-    option idempotency_level = NO_SIDE_EFFECTS;
+  // Update a file. Fields are optional: an absent field is left unchanged,
+  // an empty value clears it.
+  rpc UpdateFile(UpdateFileRequest) returns (UpdateFileResponse) {
+    option idempotency_level = IDEMPOTENT;
     option (google.api.http) = {
-      get: "/v1/files"
-      response_body: "files"
+      patch: "/v1/files/{id}"
+      body: "*"
+      response_body: "file"
     };
   }
 
-  // Replace a file's content. Its ID and URL stay the same.
-  rpc ReplaceFile(stream ReplaceFileRequest) returns (ReplaceFileResponse) {
+  // Update a file's content, replacing it entirely. Its ID and URL stay the
+  // same.
+  rpc UpdateFileContent(stream UpdateFileContentRequest) returns (UpdateFileContentResponse) {
     option idempotency_level = IDEMPOTENT;
     option (google.api.http) = {
-      put: "/v1/files/{id}"
+      put: "/v1/files/{id}/content"
       body: "content"
       response_body: "file"
     };
@@ -147,15 +159,10 @@ service FileService {
     };
   }
 
-  // Update a file. Fields are optional: an absent field is left unchanged,
-  // an empty value clears it.
-  rpc UpdateFile(UpdateFileRequest) returns (UpdateFileResponse) {
+  // Permanently delete a file and its content. Its URL stops working.
+  rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse) {
     option idempotency_level = IDEMPOTENT;
-    option (google.api.http) = {
-      patch: "/v1/files/{id}"
-      body: "*"
-      response_body: "file"
-    };
+    option (google.api.http) = {delete: "/v1/files/{id}"};
   }
 
   // Make a file publicly accessible.
@@ -173,12 +180,6 @@ service FileService {
       body: "*"
     };
   }
-
-  // Permanently delete a file and its content. Its URL stops working.
-  rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse) {
-    option idempotency_level = IDEMPOTENT;
-    option (google.api.http) = {delete: "/v1/files/{id}"};
-  }
 }
 
 message CreateFileRequest {
@@ -187,6 +188,21 @@ message CreateFileRequest {
 
 message CreateFileResponse {
   File file = 1 [(buf.validate.field).required = true];
+}
+
+message ListFilesRequest {
+  // Maximum number of files to return. Absent means 50.
+  optional int32 limit = 1 [(buf.validate.field).int32 = {
+    gte: 1
+    lte: 100
+  }];
+  // ID of the last file from the previous page. Absent means the first page.
+  optional string after = 2 [(buf.validate.field).string = {pattern: "^[A-Za-z0-9_-]{21}$"}];
+}
+
+message ListFilesResponse {
+  // Newest first.
+  repeated File files = 1;
 }
 
 message GetFileRequest {
@@ -211,33 +227,6 @@ message GetFileContentResponse {
   google.api.HttpBody content = 1 [(buf.validate.field).required = true];
 }
 
-message ListFilesRequest {
-  // Maximum number of files to return. Absent means 50.
-  optional int32 limit = 1 [(buf.validate.field).int32 = {
-    gte: 1
-    lte: 100
-  }];
-  // ID of the last file from the previous page. Absent means the first page.
-  optional string after = 2 [(buf.validate.field).string = {pattern: "^[A-Za-z0-9_-]{21}$"}];
-}
-
-message ListFilesResponse {
-  // Newest first.
-  repeated File files = 1;
-}
-
-message ReplaceFileRequest {
-  string id = 1 [(buf.validate.field) = {
-    required: true
-    string: {pattern: "^[A-Za-z0-9_-]{21}$"}
-  }];
-  google.api.HttpBody content = 2 [(buf.validate.field).required = true];
-}
-
-message ReplaceFileResponse {
-  File file = 1 [(buf.validate.field).required = true];
-}
-
 message UpdateFileRequest {
   string id = 1 [(buf.validate.field) = {
     required: true
@@ -252,6 +241,18 @@ message UpdateFileRequest {
 }
 
 message UpdateFileResponse {
+  File file = 1 [(buf.validate.field).required = true];
+}
+
+message UpdateFileContentRequest {
+  string id = 1 [(buf.validate.field) = {
+    required: true
+    string: {pattern: "^[A-Za-z0-9_-]{21}$"}
+  }];
+  google.api.HttpBody content = 2 [(buf.validate.field).required = true];
+}
+
+message UpdateFileContentResponse {
   File file = 1 [(buf.validate.field).required = true];
 }
 

@@ -108,9 +108,9 @@ A single endpoint serves all protocols via [vanguard-go](https://github.com/conn
 
 ## API
 
-The API only works with your own files: every endpoint below acts on files uploaded with your API keys.
+The API only works with your own files: every endpoint below acts on files created with your API keys.
 
-### Upload a file
+### Create a file
 
 ```bash
 curl -H "Authorization: Bearer <api-key>" \
@@ -119,7 +119,7 @@ curl -H "Authorization: Bearer <api-key>" \
   --data-binary @photo.png
 ```
 
-Upload, replace, and update return the file's metadata:
+Creating and updating a file return its metadata:
 
 ```json
 {
@@ -155,23 +155,14 @@ curl -H "Authorization: Bearer <api-key>" \
 
 Returns the file's metadata.
 
-### Download a file
+### Get a file's content
 
 ```bash
 curl -H "Authorization: Bearer <api-key>" \
   -o photo.png http://localhost:8080/v1/files/{id}/content
 ```
 
-Supports `Range` requests.
-
-### Replace a file
-
-```bash
-curl -H "Authorization: Bearer <api-key>" \
-  -X PUT http://localhost:8080/v1/files/{id} \
-  -H "Content-Type: image/png" \
-  --data-binary @photo-v2.png
-```
+Returns the file's bytes. Supports `Range` requests.
 
 ### Update a file
 
@@ -184,6 +175,17 @@ curl -H "Authorization: Bearer <api-key>" \
 
 Updates a file's fields. Currently supports `slug`, a human-readable name;
 send `{"slug": ""}` to clear it.
+
+### Update a file's content
+
+```bash
+curl -H "Authorization: Bearer <api-key>" \
+  -X PUT http://localhost:8080/v1/files/{id}/content \
+  -H "Content-Type: image/png" \
+  --data-binary @photo-v2.png
+```
+
+Replaces the whole content; the file's ID and URL stay the same.
 
 ### Delete a file
 
@@ -215,7 +217,7 @@ claude mcp add --transport http stashy http://localhost:8080/mcp \
   --header "Authorization: Bearer <api-key>"
 ```
 
-Tools: `list_files`, `get_file`, `update_file`, `publish_file`, `unpublish_file`, `delete_file`. They work with file metadata; to upload or download content, use the REST API.
+Tools: `list_files`, `get_file`, `update_file`, `publish_file`, `unpublish_file`, `delete_file`. They work with file metadata; to create files or get and update their content, use the REST API.
 
 ## File access
 

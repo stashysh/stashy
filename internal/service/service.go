@@ -196,10 +196,10 @@ func (s *FileService) CreateFile(
 	}), nil
 }
 
-func (s *FileService) ReplaceFile(
+func (s *FileService) UpdateFileContent(
 	ctx context.Context,
-	stream *connect.ClientStream[stashyv1.ReplaceFileRequest],
-) (*connect.Response[stashyv1.ReplaceFileResponse], error) {
+	stream *connect.ClientStream[stashyv1.UpdateFileContentRequest],
+) (*connect.Response[stashyv1.UpdateFileContentResponse], error) {
 	owner, ok := auth.UserIDFromContext(ctx)
 	if !ok {
 		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
@@ -274,7 +274,7 @@ func (s *FileService) ReplaceFile(
 		return nil, fileError(updateErr)
 	}
 
-	return connect.NewResponse(&stashyv1.ReplaceFileResponse{
+	return connect.NewResponse(&stashyv1.UpdateFileContentResponse{
 		File: s.fileProto(updated),
 	}), nil
 }
