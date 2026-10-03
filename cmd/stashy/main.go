@@ -288,11 +288,12 @@ func cmdServe(migrate bool) {
 	oauth.RegisterRoutes(mux)
 	apiKeys.RegisterRoutes(mux)
 
-	// Register direct handlers for upload/download before Vanguard to bypass its
-	// full-body buffering of HttpBody RPCs (see github.com/stashysh/stashy/issues/23).
-	mux.Handle("POST /v1/files", apiAuth(http.HandlerFunc(svc.HTTPUpload)))
-	mux.Handle("PUT /v1/files/{id}", apiAuth(http.HandlerFunc(svc.HTTPReplace)))
-	mux.Handle("GET /v1/files/{id}/content", apiAuth(http.HandlerFunc(svc.HTTPDownload)))
+	// Register direct handlers for the streaming content RPCs before Vanguard to
+	// bypass its full-body buffering of HttpBody RPCs (see
+	// github.com/stashysh/stashy/issues/23).
+	mux.Handle("POST /v1/files", apiAuth(http.HandlerFunc(svc.HTTPCreateFile)))
+	mux.Handle("GET /v1/files/{id}/content", apiAuth(http.HandlerFunc(svc.HTTPGetFileContent)))
+	mux.Handle("PUT /v1/files/{id}/content", apiAuth(http.HandlerFunc(svc.HTTPUpdateFileContent)))
 
 	mux.Handle("/v1/", apiAuth(transcoder))
 	// MCP authenticates with the same API keys, via the SDK's bearer-token

@@ -195,16 +195,16 @@ func TestWriteRPCsReturnFile(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/files", strings.NewReader("hello"))
 	req.Header.Set("Content-Type", "text/plain")
-	created := decode(t, serveAs(http.HandlerFunc(svc.HTTPUpload), "1", req))
+	created := decode(t, serveAs(http.HandlerFunc(svc.HTTPCreateFile), "1", req))
 	id, _ := created["id"].(string)
 	if created["url"] != "http://example.test/"+id || created["size"] != "5" || created["content_type"] != "text/plain" {
 		t.Fatalf("created = %v", created)
 	}
 
-	req = httptest.NewRequest(http.MethodPut, "/v1/files/"+id, strings.NewReader("hello, world"))
+	req = httptest.NewRequest(http.MethodPut, "/v1/files/"+id+"/content", strings.NewReader("hello, world"))
 	req.SetPathValue("id", id)
 	req.Header.Set("Content-Type", "text/markdown")
-	replaced := decode(t, serveAs(http.HandlerFunc(svc.HTTPReplace), "1", req))
+	replaced := decode(t, serveAs(http.HandlerFunc(svc.HTTPUpdateFileContent), "1", req))
 	if replaced["size"] != "12" || replaced["content_type"] != "text/markdown" {
 		t.Fatalf("replaced = %v", replaced)
 	}
@@ -258,7 +258,7 @@ func TestGetFileREST(t *testing.T) {
 	}
 }
 
-func TestHTTPDownloadChecksOwner(t *testing.T) {
+func TestHTTPGetFileContentChecksOwner(t *testing.T) {
 	svc, id := newTestService(t, memory.New(), "text/plain", "hello")
 
 	for _, tc := range []struct {
@@ -271,7 +271,7 @@ func TestHTTPDownloadChecksOwner(t *testing.T) {
 	} {
 		req := httptest.NewRequest(http.MethodGet, "/v1/files/"+tc.id+"/content", nil)
 		req.SetPathValue("id", tc.id)
-		rec := serveAs(http.HandlerFunc(svc.HTTPDownload), tc.owner, req)
+		rec := serveAs(http.HandlerFunc(svc.HTTPGetFileContent), tc.owner, req)
 		if rec.Code != tc.want {
 			t.Errorf("owner %s, id %s: status = %d, want %d", tc.owner, tc.id, rec.Code, tc.want)
 		}

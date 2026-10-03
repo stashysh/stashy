@@ -141,10 +141,10 @@ func parseByteRange(header string, size int64) (byteRange, error) {
 	return byteRange{start: start, end: end}, nil
 }
 
-// HTTPDownload handles GET /v1/files/{id}/content directly, bypassing
+// HTTPGetFileContent handles GET /v1/files/{id}/content directly, bypassing
 // Vanguard. Authentication is enforced by upstream middleware; ownership is
 // checked here.
-func (s *FileService) HTTPDownload(w http.ResponseWriter, r *http.Request) {
+func (s *FileService) HTTPGetFileContent(w http.ResponseWriter, r *http.Request) {
 	owner, ok := auth.UserIDFromContext(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -161,17 +161,17 @@ func (s *FileService) HTTPDownload(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "permission denied", http.StatusForbidden)
 			return
 		}
-		log.Printf("HTTPDownload %s: %v", id, err)
+		log.Printf("HTTPGetFileContent %s: %v", id, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	s.ServeFile(w, r, id)
 }
 
-// HTTPUpload handles POST /v1/files directly, bypassing Vanguard.
+// HTTPCreateFile handles POST /v1/files directly, bypassing Vanguard.
 // Streaming r.Body straight to storage avoids the full-body buffering that
 // Vanguard does when transcoding HttpBody RPCs (see github.com/stashysh/stashy/issues/23).
-func (s *FileService) HTTPUpload(w http.ResponseWriter, r *http.Request) {
+func (s *FileService) HTTPCreateFile(w http.ResponseWriter, r *http.Request) {
 	owner, _ := auth.UserIDFromContext(r.Context())
 
 	ct, err := validateContentType(r.Header.Get("Content-Type"))
@@ -182,7 +182,7 @@ func (s *FileService) HTTPUpload(w http.ResponseWriter, r *http.Request) {
 
 	f, err := s.putFile(r.Context(), owner, ct, r.Body)
 	if err != nil {
-		log.Printf("HTTPUpload: %v", err)
+		log.Printf("HTTPCreateFile: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
@@ -190,8 +190,9 @@ func (s *FileService) HTTPUpload(w http.ResponseWriter, r *http.Request) {
 	s.writeFileJSON(w, f)
 }
 
-// HTTPReplace handles PUT /v1/files/{id} directly, bypassing Vanguard.
-func (s *FileService) HTTPReplace(w http.ResponseWriter, r *http.Request) {
+// HTTPUpdateFileContent handles PUT /v1/files/{id}/content directly, bypassing
+// Vanguard.
+func (s *FileService) HTTPUpdateFileContent(w http.ResponseWriter, r *http.Request) {
 	owner, ok := auth.UserIDFromContext(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -220,7 +221,7 @@ func (s *FileService) HTTPReplace(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "permission denied", http.StatusForbidden)
 			return
 		}
-		log.Printf("HTTPReplace %s: %v", id, err)
+		log.Printf("HTTPUpdateFileContent %s: %v", id, err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
