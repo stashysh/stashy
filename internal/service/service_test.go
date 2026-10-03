@@ -280,3 +280,32 @@ func TestHTTPDownloadChecksOwner(t *testing.T) {
 		}
 	}
 }
+
+// TestConnectGetForReads checks that side-effect-free RPCs accept Connect GET
+// requests through the transcoder.
+func TestConnectGetForReads(t *testing.T) {
+	svc, _ := newListService(t, 1)
+	transcoder := newTestTranscoder(t, svc)
+
+	var methods []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.Method)
+		transcoder.ServeHTTP(w, r.WithContext(auth.ContextWithUserID(r.Context(), "1")))
+	}))
+	t.Cleanup(srv.Close)
+
+	client := stashyv1connect.NewFileServiceClient(srv.Client(), srv.URL, connect.WithHTTPGet(), connect.WithProtoJSON())
+	resp, err := client.ListFiles(t.Context(), connect.NewRequest(&stashyv1.ListFilesRequest{}))
+	if err != nil {
+		t.Fatalf("ListFiles: %v", err)
+	}
+	if len(resp.Msg.Files) != 1 {
+		t.Fatalf("got %d files, want 1", len(resp.Msg.Files))
+	}
+	if _, err := client.GetFile(t.Context(), connect.NewRequest(&stashyv1.GetFileRequest{Id: resp.Msg.Files[0].Id})); err != nil {
+		t.Fatalf("GetFile: %v", err)
+	}
+	if len(methods) != 2 || methods[0] != http.MethodGet || methods[1] != http.MethodGet {
+		t.Fatalf("request methods = %v, want two GETs", methods)
+	}
+}
