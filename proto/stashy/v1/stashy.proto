@@ -11,6 +11,7 @@ import "google/protobuf/timestamp.proto";
 option go_package = "github.com/stashysh/stashy/gen/stashy/v1;stashyv1";
 
 message File {
+  // Unique file ID.
   string id = 1 [(buf.validate.field) = {
     required: true
     string: {pattern: "^[A-Za-z0-9_-]{21}$"}
@@ -20,9 +21,13 @@ message File {
     required: true
     string: {uri: true}
   }];
+  // Media type of the content, from the Content-Type of the upload.
   string content_type = 3 [(buf.validate.field).required = true];
+  // Size of the content in bytes.
   int64 size = 4 [(buf.validate.field).int64.gte = 0];
+  // Whether anyone can open the URL without signing in.
   bool public = 5;
+  // Human-readable name at the end of the URL. Empty when not set.
   string slug = 6 [(buf.validate.field).string = {
     pattern: "^[A-Za-z0-9._~-]*$"
     max_len: 128
@@ -32,7 +37,8 @@ message File {
 }
 
 service FileService {
-  // Upload a file to storage.
+  // Upload a new file. The request body is the file's content, and its
+  // Content-Type is stored with it.
   rpc CreateFile(stream CreateFileRequest) returns (CreateFileResponse) {
     option (google.api.http) = {
       post: "/v1/files"
@@ -68,7 +74,7 @@ service FileService {
     };
   }
 
-  // Download a file's content.
+  // Get a file's content. Supports Range requests.
   rpc GetFileContent(GetFileContentRequest) returns (stream GetFileContentResponse) {
     option (google.api.http) = {
       get: "/v1/files/{id}/content"
@@ -100,8 +106,8 @@ service FileService {
     };
   }
 
-  // List the caller's files, newest first. Pass the last file's id as
-  // after to fetch the next page; a page shorter than limit is the last.
+  // List your files, newest first. To get the next page, pass the last
+  // file's ID as after. A page shorter than limit is the last one.
   rpc ListFiles(ListFilesRequest) returns (ListFilesResponse) {
     option (google.api.http) = {
       get: "/v1/files"
@@ -109,7 +115,7 @@ service FileService {
     };
   }
 
-  // Replace the content of an existing file.
+  // Replace a file's content. Its ID and URL stay the same.
   rpc ReplaceFile(stream ReplaceFileRequest) returns (ReplaceFileResponse) {
     option (google.api.http) = {
       put: "/v1/files/{id}"
@@ -163,7 +169,7 @@ service FileService {
     };
   }
 
-  // Delete a file.
+  // Permanently delete a file and its content. Its URL stops working.
   rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse) {
     option (google.api.http) = {delete: "/v1/files/{id}"};
   }
