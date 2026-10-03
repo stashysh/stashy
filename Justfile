@@ -25,6 +25,10 @@ tidy:
 lint:
     buf lint
 
+# Check for known vulnerabilities in code paths we call
+vuln:
+    go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+
 # Clean build artifacts
 clean:
     rm -f stashy
