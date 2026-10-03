@@ -68,6 +68,7 @@ service FileService {
 
   // Get a file's metadata.
   rpc GetFile(GetFileRequest) returns (GetFileResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
     option (google.api.http) = {
       get: "/v1/files/{id}"
       response_body: "file"
@@ -76,6 +77,7 @@ service FileService {
 
   // Get a file's content. Supports Range requests.
   rpc GetFileContent(GetFileContentRequest) returns (stream GetFileContentResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
     option (google.api.http) = {
       get: "/v1/files/{id}/content"
       response_body: "content"
@@ -109,6 +111,7 @@ service FileService {
   // List your files, newest first. To get the next page, pass the last
   // file's ID as after. A page shorter than limit is the last one.
   rpc ListFiles(ListFilesRequest) returns (ListFilesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
     option (google.api.http) = {
       get: "/v1/files"
       response_body: "files"
@@ -117,6 +120,7 @@ service FileService {
 
   // Replace a file's content. Its ID and URL stay the same.
   rpc ReplaceFile(stream ReplaceFileRequest) returns (ReplaceFileResponse) {
+    option idempotency_level = IDEMPOTENT;
     option (google.api.http) = {
       put: "/v1/files/{id}"
       body: "content"
@@ -146,6 +150,7 @@ service FileService {
   // Update a file. Fields are optional: an absent field is left unchanged,
   // an empty value clears it.
   rpc UpdateFile(UpdateFileRequest) returns (UpdateFileResponse) {
+    option idempotency_level = IDEMPOTENT;
     option (google.api.http) = {
       patch: "/v1/files/{id}"
       body: "*"
@@ -171,6 +176,7 @@ service FileService {
 
   // Permanently delete a file and its content. Its URL stops working.
   rpc DeleteFile(DeleteFileRequest) returns (DeleteFileResponse) {
+    option idempotency_level = IDEMPOTENT;
     option (google.api.http) = {delete: "/v1/files/{id}"};
   }
 }
