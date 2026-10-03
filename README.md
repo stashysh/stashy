@@ -91,7 +91,7 @@ curl -H "Authorization: Bearer <api-key>" \
   --data-binary @photo.png
 ```
 
-Files are private by default. Use `POST /v1/files/{id}/publish` to make a file publicly accessible at `/{id}`. Logged-in users can access any file via direct link. The API only gives access to your own files.
+Files are private by default. Use `POST /v1/files/{id}/publish` to make a file publicly accessible at `/{id}`. Logged-in users can access any file via direct link.
 
 Set `ALLOWED_DOMAINS` to restrict login to specific email domains.
 
@@ -107,6 +107,8 @@ A single endpoint serves all protocols via [vanguard-go](https://github.com/conn
 | REST | HTTP/1.1 or HTTP/2 |
 
 ## API
+
+The API only works with your own files: every endpoint below acts on files uploaded with your API keys.
 
 ### Upload a file
 
@@ -151,7 +153,7 @@ curl -H "Authorization: Bearer <api-key>" \
   http://localhost:8080/v1/files/{id}
 ```
 
-Returns the file's metadata. Only the file owner can get it.
+Returns the file's metadata.
 
 ### Download a file
 
@@ -160,7 +162,7 @@ curl -H "Authorization: Bearer <api-key>" \
   -o photo.png http://localhost:8080/v1/files/{id}/content
 ```
 
-Supports `Range` requests. Only the file owner can download it.
+Supports `Range` requests.
 
 ### Replace a file
 
@@ -170,8 +172,6 @@ curl -H "Authorization: Bearer <api-key>" \
   -H "Content-Type: image/png" \
   --data-binary @photo-v2.png
 ```
-
-Only the file owner can replace it.
 
 ### Update a file
 
@@ -183,7 +183,7 @@ curl -H "Authorization: Bearer <api-key>" \
 ```
 
 Updates a file's fields. Currently supports `slug`, a human-readable name;
-send `{"slug": ""}` to clear it. Only the file owner can update it.
+send `{"slug": ""}` to clear it.
 
 ### Delete a file
 
@@ -192,8 +192,6 @@ curl -H "Authorization: Bearer <api-key>" \
   -X DELETE http://localhost:8080/v1/files/{id}
 ```
 
-Only the file owner can delete it.
-
 ### Publish a file
 
 ```bash
@@ -201,16 +199,12 @@ curl -H "Authorization: Bearer <api-key>" \
   -X POST http://localhost:8080/v1/files/{id}/publish
 ```
 
-Only the file owner can publish it.
-
 ### Unpublish a file
 
 ```bash
 curl -H "Authorization: Bearer <api-key>" \
   -X POST http://localhost:8080/v1/files/{id}/unpublish
 ```
-
-Only the file owner can unpublish it.
 
 ## MCP
 
