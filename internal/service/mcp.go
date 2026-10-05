@@ -82,6 +82,18 @@ type mcpListFilesInput struct {
 	After *string `json:"after,omitempty" jsonschema:"id of the last file from the previous page"`
 }
 
+// listFilesSchema is mcpListFilesInput's schema with limit bounded to the
+// range ListFilesRequest accepts instead of the int32 range inferred from Go.
+func listFilesSchema() *jsonschema.Schema {
+	schema, err := jsonschema.For[mcpListFilesInput](nil)
+	if err != nil {
+		panic(err)
+	}
+	limit := schema.Properties["limit"]
+	limit.Minimum, limit.Maximum = new(float64(1)), new(float64(100))
+	return schema
+}
+
 type mcpListFilesOutput struct {
 	Files []mcpFile `json:"files" jsonschema:"newest first; fewer than limit means this is the last page"`
 }
@@ -95,13 +107,16 @@ type mcpUpdateFileInput struct {
 }
 
 // updateFileSchema is mcpUpdateFileInput's schema with visibility limited to
-// its allowed values, which struct tags can't express.
+// its allowed values, which struct tags can't express. It isn't nullable:
+// omitting it leaves visibility unchanged.
 func updateFileSchema() *jsonschema.Schema {
 	schema, err := jsonschema.For[mcpUpdateFileInput](nil)
 	if err != nil {
 		panic(err)
 	}
-	schema.Properties["visibility"].Enum = []any{db.VisibilityPrivate, db.VisibilityInternal, db.VisibilityPublic}
+	visibility := schema.Properties["visibility"]
+	visibility.Type, visibility.Types = "string", nil
+	visibility.Enum = []any{db.VisibilityPrivate, db.VisibilityInternal, db.VisibilityPublic}
 	return schema
 }
 
@@ -115,6 +130,7 @@ func (s *FileService) addMCPTools(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "list_files",
 		Description: "List your files, newest first. Pass the last file's id as after to get the next page.",
+		InputSchema: listFilesSchema(),
 		Annotations: readOnly,
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in mcpListFilesInput) (*mcp.CallToolResult, mcpListFilesOutput, error) {
 		resp, err := callUnary(ctx, req, s.ListFiles, &stashyv1.ListFilesRequest{Limit: in.Limit, After: in.After})
