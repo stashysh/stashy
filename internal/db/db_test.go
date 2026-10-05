@@ -121,6 +121,30 @@ func TestListFilesKeysetTieBreakOnEqualTimes(t *testing.T) {
 	}
 }
 
+// CreateFile's timestamps must match what GetFile returns later, even where
+// the database stores them at lower precision than Go's clock.
+func TestCreateFileTimestampsMatchStored(t *testing.T) {
+	database := newTestDB(t)
+	user, err := database.UpsertUser(t.Context(), "g-1", "a@b.c", "A")
+	if err != nil {
+		t.Fatalf("UpsertUser: %v", err)
+	}
+
+	const id = "time-0000000000000000" // 21 chars
+	created, err := database.CreateFile(t.Context(), File{ID: id, Owner: user.ID, ContentType: "text/plain", Size: 1})
+	if err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
+	got, err := database.GetFile(t.Context(), id)
+	if err != nil {
+		t.Fatalf("GetFile: %v", err)
+	}
+	if !got.CreatedAt.Equal(created.CreatedAt) || !got.UpdatedAt.Equal(created.UpdatedAt) {
+		t.Fatalf("GetFile times = %v/%v, want %v/%v from CreateFile",
+			got.CreatedAt, got.UpdatedAt, created.CreatedAt, created.UpdatedAt)
+	}
+}
+
 func TestFileName(t *testing.T) {
 	database := newTestDB(t)
 	user, err := database.UpsertUser(t.Context(), "g-1", "a@b.c", "A")

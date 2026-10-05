@@ -158,11 +158,12 @@ func (d *DB) CreateAPIKey(ctx context.Context, userID, label string) (string, *A
 	now := time.Now()
 
 	var id string
+	var createdAt time.Time
 	switch d.dialect {
 	default: // sqlite3, pgx
 		query := d.q(`INSERT INTO api_keys (user_id, key_hash, key_prefix, label, created_at)
-			VALUES (?, ?, ?, ?, ?) RETURNING id`)
-		err := d.sql.QueryRowContext(ctx, query, userID, keyHash, keyPrefix, label, now).Scan(&id)
+			VALUES (?, ?, ?, ?, ?) RETURNING id, created_at`)
+		err := d.sql.QueryRowContext(ctx, query, userID, keyHash, keyPrefix, label, now).Scan(&id, &createdAt)
 		if err != nil {
 			return "", nil, fmt.Errorf("inserting api key: %w", err)
 		}
@@ -174,7 +175,7 @@ func (d *DB) CreateAPIKey(ctx context.Context, userID, label string) (string, *A
 		KeyHash:   keyHash,
 		KeyPrefix: keyPrefix,
 		Label:     label,
-		CreatedAt: now,
+		CreatedAt: createdAt,
 	}
 	return plaintext, key, nil
 }
@@ -254,11 +255,14 @@ func (d *DB) CreateFile(ctx context.Context, f File) (*File, error) {
 	// stable zone (and no monotonic-clock suffix) keeps ordering and the
 	// keyset cursor in ListFiles correct.
 	now := time.Now().UTC()
-	f.CreatedAt, f.UpdatedAt = now, now
+	// Read the times back rather than returning now: the database may store
+	// them at lower precision (microseconds in Postgres), and the result must
+	// match what later reads return.
 	query := d.q(`INSERT INTO files (` + fileColumns + `)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-	if _, err := d.sql.ExecContext(ctx, query,
-		f.ID, f.Owner, f.Slug, f.Name, f.ContentType, f.Size, f.Checksum, f.Visibility, f.CreatedAt, f.UpdatedAt); err != nil {
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) RETURNING created_at, updated_at`)
+	if err := d.sql.QueryRowContext(ctx, query,
+		f.ID, f.Owner, f.Slug, f.Name, f.ContentType, f.Size, f.Checksum, f.Visibility, now, now).
+		Scan(&f.CreatedAt, &f.UpdatedAt); err != nil {
 		return nil, fmt.Errorf("inserting file: %w", err)
 	}
 	return &f, nil
