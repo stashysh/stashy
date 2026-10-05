@@ -37,7 +37,7 @@ func TestListFilesKeysetPagination(t *testing.T) {
 	var ids []string
 	for i := 0; i < 5; i++ {
 		id := fmt.Sprintf("file-%016d", i) // 21 chars
-		if _, err := database.CreateFile(t.Context(), id, user.ID, "", "", "text/plain", 1); err != nil {
+		if _, err := database.CreateFile(t.Context(), File{ID: id, Owner: user.ID, ContentType: "text/plain", Size: 1}); err != nil {
 			t.Fatalf("CreateFile %s: %v", id, err)
 		}
 		if _, err := database.sql.ExecContext(t.Context(),
@@ -87,7 +87,7 @@ func TestListFilesKeysetTieBreakOnEqualTimes(t *testing.T) {
 	ts := time.Now().UTC().Truncate(time.Second)
 	for i := 0; i < 5; i++ {
 		id := fmt.Sprintf("file-%016d", i)
-		if _, err := database.CreateFile(t.Context(), id, user.ID, "", "", "text/plain", 1); err != nil {
+		if _, err := database.CreateFile(t.Context(), File{ID: id, Owner: user.ID, ContentType: "text/plain", Size: 1}); err != nil {
 			t.Fatalf("CreateFile %s: %v", id, err)
 		}
 		if _, err := database.sql.ExecContext(t.Context(),
@@ -129,7 +129,7 @@ func TestFileName(t *testing.T) {
 	}
 
 	const id = "name-0000000000000000" // 21 chars
-	if _, err := database.CreateFile(t.Context(), id, user.ID, "", "Quarterly report.pdf", "application/pdf", 1); err != nil {
+	if _, err := database.CreateFile(t.Context(), File{ID: id, Owner: user.ID, Name: "Quarterly report.pdf", ContentType: "application/pdf", Size: 1}); err != nil {
 		t.Fatalf("CreateFile: %v", err)
 	}
 	if f, err := database.GetFile(t.Context(), id); err != nil || f.Name != "Quarterly report.pdf" {

@@ -40,7 +40,7 @@ func putTestFile(t *testing.T, database *db.DB, store storage.Storage, owner, co
 	if _, err := store.Put(t.Context(), id, contentType, strings.NewReader(body)); err != nil {
 		t.Fatalf("Put: %v", err)
 	}
-	f, err := database.CreateFile(t.Context(), id, owner, "", "", contentType, int64(len(body)))
+	f, err := database.CreateFile(t.Context(), db.File{ID: id, Owner: owner, ContentType: contentType, Size: int64(len(body))})
 	if err != nil {
 		t.Fatalf("CreateFile: %v", err)
 	}
@@ -51,8 +51,8 @@ func TestFileHandlerServesPublicByteRangesThroughStorageRange(t *testing.T) {
 	database := newTestDB(t)
 	base := memory.New()
 	f := putTestFile(t, database, base, "1", "video/mp4", "0123456789")
-	if err := database.SetFilePublic(t.Context(), f.ID, "1", true); err != nil {
-		t.Fatalf("SetFilePublic: %v", err)
+	if err := database.SetFileVisibility(t.Context(), f.ID, "1", db.VisibilityPublic); err != nil {
+		t.Fatalf("SetFileVisibility: %v", err)
 	}
 
 	store := &rangeTrackingStore{Storage: base}
@@ -86,8 +86,8 @@ func TestFileHandlerHeadDoesNotOpenBody(t *testing.T) {
 	database := newTestDB(t)
 	base := memory.New()
 	f := putTestFile(t, database, base, "1", "video/mp4", "0123456789")
-	if err := database.SetFilePublic(t.Context(), f.ID, "1", true); err != nil {
-		t.Fatalf("SetFilePublic: %v", err)
+	if err := database.SetFileVisibility(t.Context(), f.ID, "1", db.VisibilityPublic); err != nil {
+		t.Fatalf("SetFileVisibility: %v", err)
 	}
 
 	store := &rangeTrackingStore{Storage: base}
@@ -117,8 +117,8 @@ func TestFileHandlerCanonicalizesSlug(t *testing.T) {
 	database := newTestDB(t)
 	store := memory.New()
 	f := putTestFile(t, database, store, "1", "text/plain", "hello")
-	if err := database.SetFilePublic(t.Context(), f.ID, "1", true); err != nil {
-		t.Fatalf("SetFilePublic: %v", err)
+	if err := database.SetFileVisibility(t.Context(), f.ID, "1", db.VisibilityPublic); err != nil {
+		t.Fatalf("SetFileVisibility: %v", err)
 	}
 	if err := database.SetFileSlug(t.Context(), f.ID, "1", "my-photo"); err != nil {
 		t.Fatalf("SetFileSlug: %v", err)
@@ -219,4 +219,47 @@ func (s *rangeTrackingStore) Get(ctx context.Context, id string) (io.ReadCloser,
 func (s *rangeTrackingStore) GetRange(ctx context.Context, id string, start, length int64) (io.ReadCloser, error) {
 	s.getRangeCalls++
 	return s.Storage.GetRange(ctx, id, start, length)
+}
+
+func TestFileHandlerEnforcesVisibility(t *testing.T) {
+	database := newTestDB(t)
+	store := memory.New()
+	files := service.New(store, database, "http://example.test")
+	sessions := auth.NewSessionManager("test-secret")
+	handler := fileHandler(database, files, sessions)
+
+	// get requests f as viewer: "" is signed out, otherwise a signed-in user ID.
+	get := func(f *db.File, viewer string) int {
+		req := httptest.NewRequest(http.MethodGet, "/"+f.ID, nil)
+		req.Header.Set("Accept", "application/json")
+		if viewer != "" {
+			cookies := httptest.NewRecorder()
+			sessions.SetSession(cookies, viewer)
+			for _, c := range cookies.Result().Cookies() {
+				req.AddCookie(c)
+			}
+		}
+		rec := httptest.NewRecorder()
+		handler(rec, req)
+		return rec.Code
+	}
+
+	for _, tc := range []struct {
+		visibility              string
+		signedOut, other, owner int
+	}{
+		{db.VisibilityPublic, http.StatusOK, http.StatusOK, http.StatusOK},
+		{db.VisibilityInternal, http.StatusUnauthorized, http.StatusOK, http.StatusOK},
+		{db.VisibilityPrivate, http.StatusUnauthorized, http.StatusNotFound, http.StatusOK},
+	} {
+		f := putTestFile(t, database, store, "1", "text/plain", "hello")
+		if err := database.SetFileVisibility(t.Context(), f.ID, "1", tc.visibility); err != nil {
+			t.Fatalf("SetFileVisibility: %v", err)
+		}
+		for viewer, want := range map[string]int{"": tc.signedOut, "2": tc.other, "1": tc.owner} {
+			if got := get(f, viewer); got != want {
+				t.Errorf("%s file, viewer %q: status = %d, want %d", tc.visibility, viewer, got, want)
+			}
+		}
+	}
 }

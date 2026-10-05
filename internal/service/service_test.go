@@ -41,7 +41,7 @@ func createTestFile(t *testing.T, database *db.DB, owner string) *db.File {
 	if err != nil {
 		t.Fatalf("NewID: %v", err)
 	}
-	f, err := database.CreateFile(t.Context(), id, owner, "", "", "text/plain", 1)
+	f, err := database.CreateFile(t.Context(), db.File{ID: id, Owner: owner, ContentType: "text/plain", Size: 1})
 	if err != nil {
 		t.Fatalf("CreateFile: %v", err)
 	}
@@ -379,5 +379,53 @@ func TestFileNames(t *testing.T) {
 		if rec := serveAs(http.HandlerFunc(svc.HTTPCreateFile), "1", req); rec.Code != http.StatusBadRequest {
 			t.Errorf("create with %s: status %d, want 400", bad, rec.Code)
 		}
+	}
+}
+
+func TestFileVisibility(t *testing.T) {
+	svc, _ := newListService(t, 0)
+	transcoder := newTestTranscoder(t, svc)
+
+	create := func(query string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/v1/files"+query, strings.NewReader("x"))
+		req.Header.Set("Content-Type", "text/plain")
+		return serveAs(http.HandlerFunc(svc.HTTPCreateFile), "1", req)
+	}
+	visibilityOf := func(rec *httptest.ResponseRecorder) (string, string) {
+		t.Helper()
+		var f map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &f); err != nil {
+			t.Fatalf("decoding %s: %v", rec.Body, err)
+		}
+		return f["id"].(string), f["visibility"].(string)
+	}
+
+	// Default is internal; upload can choose another level.
+	if _, v := visibilityOf(create("")); v != "internal" {
+		t.Fatalf("default visibility = %q, want internal", v)
+	}
+	id, v := visibilityOf(create("?visibility=private"))
+	if v != "private" {
+		t.Fatalf("visibility = %q, want private", v)
+	}
+	if rec := create("?visibility=everyone"); rec.Code != http.StatusBadRequest {
+		t.Fatalf("unknown visibility: status %d, want 400", rec.Code)
+	}
+
+	// Change it over REST.
+	req := httptest.NewRequest(http.MethodPatch, "/v1/files/"+id, strings.NewReader(`{"visibility": "public"}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := serveAs(transcoder, "1", req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("PATCH: status %d; body: %s", rec.Code, rec.Body)
+	}
+	if _, v := visibilityOf(rec); v != "public" {
+		t.Fatalf("visibility = %q after PATCH, want public", v)
+	}
+
+	req = httptest.NewRequest(http.MethodPatch, "/v1/files/"+id, strings.NewReader(`{"visibility": ""}`))
+	req.Header.Set("Content-Type", "application/json")
+	if rec := serveAs(transcoder, "1", req); rec.Code != http.StatusBadRequest {
+		t.Fatalf("PATCH with empty visibility: status %d, want 400", rec.Code)
 	}
 }

@@ -9,6 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/stashysh/stashy/internal/db"
 	"github.com/stashysh/stashy/internal/storage/memory"
 )
 
@@ -118,13 +119,20 @@ func TestMCPTools(t *testing.T) {
 		t.Fatalf("ListTools: %v", err)
 	}
 	annotations := map[string]*mcp.ToolAnnotations{}
+	var updateSchema []byte
 	for _, tool := range tools.Tools {
 		annotations[tool.Name] = tool.Annotations
+		if tool.Name == "update_file" {
+			updateSchema, _ = json.Marshal(tool.InputSchema)
+		}
 	}
-	if len(annotations) != 6 {
-		t.Errorf("got %d tools, want 6", len(annotations))
+	if len(annotations) != 4 {
+		t.Errorf("got %d tools, want 4", len(annotations))
 	}
-	for _, name := range []string{"list_files", "get_file", "update_file", "publish_file", "unpublish_file", "delete_file"} {
+	if !strings.Contains(string(updateSchema), `"enum":["private","internal","public"]`) {
+		t.Errorf("update_file schema should list the visibility values: %s", updateSchema)
+	}
+	for _, name := range []string{"list_files", "get_file", "update_file", "delete_file"} {
 		if annotations[name] == nil {
 			t.Errorf("tool %s missing or has no annotations", name)
 		}
@@ -136,13 +144,13 @@ func TestMCPTools(t *testing.T) {
 		t.Errorf("update_file should be marked non-destructive")
 	}
 
-	created, err := svc.putFile(t.Context(), firstUserID(t, svc), "", "", "text/markdown", strings.NewReader("# Notes"))
+	created, err := svc.putFile(t.Context(), db.File{Owner: firstUserID(t, svc), ContentType: "text/markdown"}, strings.NewReader("# Notes"))
 	if err != nil {
 		t.Fatalf("putFile: %v", err)
 	}
 
 	got := toolFile(t, alice, "get_file", map[string]any{"id": created.ID})
-	if got.Size != 7 || got.ContentType != "text/markdown" || got.Public {
+	if got.Size != 7 || got.ContentType != "text/markdown" || got.Visibility != "internal" {
 		t.Fatalf("get_file = %+v", got)
 	}
 
@@ -151,11 +159,11 @@ func TestMCPTools(t *testing.T) {
 		t.Fatalf("updated = %+v", updated)
 	}
 
-	if res := callTool(t, alice, "publish_file", map[string]any{"id": created.ID}); res.IsError {
-		t.Fatalf("publish_file: %s", toolText(res))
+	if f := toolFile(t, alice, "update_file", map[string]any{"id": created.ID, "visibility": "public"}); f.Visibility != "public" {
+		t.Fatalf("visibility = %q after update_file, want public", f.Visibility)
 	}
-	if f := toolFile(t, alice, "get_file", map[string]any{"id": created.ID}); !f.Public {
-		t.Fatalf("file not public after publish_file")
+	if res := callTool(t, alice, "update_file", map[string]any{"id": created.ID, "visibility": "everyone"}); !res.IsError {
+		t.Fatalf("update_file with an unknown visibility: want a tool error")
 	}
 
 	res := callTool(t, alice, "list_files", map[string]any{"limit": 10})

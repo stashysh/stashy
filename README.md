@@ -91,7 +91,7 @@ curl -H "Authorization: Bearer <api-key>" \
   --data-binary @photo.png
 ```
 
-Files are private by default. Use `POST /v1/files/{id}/publish` to make a file publicly accessible at `/{id}`. Logged-in users can access any file via direct link.
+Each file's visibility controls who can open its link (`/{id}`): `private` (only you), `internal` (any signed-in user; the default), or `public` (anyone).
 
 Set `ALLOWED_DOMAINS` to restrict login to specific email domains.
 
@@ -119,9 +119,13 @@ curl -H "Authorization: Bearer <api-key>" \
   --data-binary @photo.png
 ```
 
-Both query parameters are optional: `slug` is the human-readable end of the
-file's URL (`/{id}/my-photo`), and `name` is the original filename, shown in the
-file list and used as the filename when the file is downloaded.
+All query parameters are optional:
+
+- `slug`: the human-readable end of the file's URL (`/{id}/my-photo`).
+- `name`: the original filename, shown in the file list and used as the
+  filename when the file is downloaded.
+- `visibility`: who can open the file's link: `private`, `internal` (default),
+  or `public`.
 
 Creating and updating a file return its metadata:
 
@@ -133,7 +137,7 @@ Creating and updating a file return its metadata:
   "name": "photo.png",
   "content_type": "image/png",
   "size": "48213",
-  "public": false,
+  "visibility": "internal",
   "created_at": "2026-10-02T12:00:00Z",
   "updated_at": "2026-10-02T12:00:00Z"
 }
@@ -175,11 +179,12 @@ Returns the file's bytes. Supports `Range` requests.
 curl -H "Authorization: Bearer <api-key>" \
   -X PATCH http://localhost:8080/v1/files/{id} \
   -H "Content-Type: application/json" \
-  -d '{"name": "My photo.png", "slug": "my-photo"}'
+  -d '{"slug": "my-photo", "name": "My photo.png", "visibility": "public"}'
 ```
 
-Updates a file's `name` (its original filename) and `slug` (the human-readable
-end of its URL). Omitted fields are left unchanged; send `""` to clear one.
+Updates a file's `slug` (the human-readable end of its URL), `name` (its
+original filename), and `visibility` (`private`, `internal`, or `public`).
+Omitted fields are left unchanged; send `""` to clear a slug or name.
 
 ### Update a file's content
 
@@ -199,20 +204,6 @@ curl -H "Authorization: Bearer <api-key>" \
   -X DELETE http://localhost:8080/v1/files/{id}
 ```
 
-### Publish a file
-
-```bash
-curl -H "Authorization: Bearer <api-key>" \
-  -X POST http://localhost:8080/v1/files/{id}/publish
-```
-
-### Unpublish a file
-
-```bash
-curl -H "Authorization: Bearer <api-key>" \
-  -X POST http://localhost:8080/v1/files/{id}/unpublish
-```
-
 ## MCP
 
 Stashy serves a [Model Context Protocol](https://modelcontextprotocol.io) server at `/mcp`, so AI assistants can work with your files. It uses the same API keys as the REST API.
@@ -222,7 +213,7 @@ claude mcp add --transport http stashy http://localhost:8080/mcp \
   --header "Authorization: Bearer <api-key>"
 ```
 
-Tools: `list_files`, `get_file`, `update_file`, `publish_file`, `unpublish_file`, `delete_file`. They work with file metadata; to create files or get and update their content, use the REST API.
+Tools: `list_files`, `get_file`, `update_file`, `delete_file`. They work with file metadata; to create files or get and update their content, use the REST API.
 
 ## File access
 
@@ -230,7 +221,8 @@ Tools: `list_files`, `get_file`, `update_file`, `publish_file`, `unpublish_file`
 curl http://localhost:8080/{id}
 ```
 
-Published files are accessible to anyone. Private files require a login session.
+Public files open for anyone. Internal files require signing in, and private
+files open only for their owner; anyone else signed in gets a 404.
 Ideal for CDN or subdomain mapping (e.g., `cdn.example.com/{id}`).
 
 If a file has a slug, its canonical URL is `/{id}/{slug}` and `/{id}` redirects

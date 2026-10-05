@@ -9,6 +9,7 @@ import (
 
 	"buf.build/go/protovalidate"
 	"connectrpc.com/connect"
+	"github.com/google/jsonschema-go/jsonschema"
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"google.golang.org/protobuf/proto"
@@ -51,7 +52,7 @@ type mcpFile struct {
 	Name        string    `json:"name" jsonschema:"original filename; empty when not set"`
 	ContentType string    `json:"content_type"`
 	Size        int64     `json:"size" jsonschema:"size in bytes"`
-	Public      bool      `json:"public" jsonschema:"whether the URL works without signing in"`
+	Visibility  string    `json:"visibility" jsonschema:"who can open the URL: private (only the owner), internal (any signed-in user), or public (anyone)"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
@@ -64,7 +65,7 @@ func toMCPFile(f *stashyv1.File) mcpFile {
 		Name:        f.Name,
 		ContentType: f.ContentType,
 		Size:        f.Size,
-		Public:      f.Public,
+		Visibility:  f.Visibility,
 		CreatedAt:   f.CreatedAt.AsTime(),
 		UpdatedAt:   f.UpdatedAt.AsTime(),
 	}
@@ -87,6 +88,19 @@ type mcpUpdateFileInput struct {
 	ID   string  `json:"id" jsonschema:"file id"`
 	Slug *string `json:"slug,omitempty" jsonschema:"human-readable name used in the file URL; empty string clears it"`
 	Name *string `json:"name,omitempty" jsonschema:"original filename, e.g. Quarterly report.pdf; empty string clears it"`
+
+	Visibility *string `json:"visibility,omitempty" jsonschema:"who can open the URL: private (only the owner), internal (any signed-in user), or public (anyone)"`
+}
+
+// updateFileSchema is mcpUpdateFileInput's schema with visibility limited to
+// its allowed values, which struct tags can't express.
+func updateFileSchema() *jsonschema.Schema {
+	schema, err := jsonschema.For[mcpUpdateFileInput](nil)
+	if err != nil {
+		panic(err)
+	}
+	schema.Properties["visibility"].Enum = []any{db.VisibilityPrivate, db.VisibilityInternal, db.VisibilityPublic}
+	return schema
 }
 
 type mcpEmpty struct{}
@@ -114,7 +128,7 @@ func (s *FileService) addMCPTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get_file",
-		Description: "Get a file's metadata: URL, content type, size, and whether it is public.",
+		Description: "Get a file's metadata: URL, name, content type, size, and visibility.",
 		Annotations: readOnly,
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in mcpFileID) (*mcp.CallToolResult, mcpFile, error) {
 		resp, err := callUnary(ctx, req, s.GetFile, &stashyv1.GetFileRequest{Id: in.ID})
@@ -126,32 +140,17 @@ func (s *FileService) addMCPTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "update_file",
-		Description: "Update a file's name (its original filename) or slug (the human-readable end of its URL).",
+		Description: "Update a file's slug (the human-readable end of its URL), name (its original filename), or visibility (who can open its URL).",
+		InputSchema: updateFileSchema(),
 		Annotations: idempotent,
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in mcpUpdateFileInput) (*mcp.CallToolResult, mcpFile, error) {
-		resp, err := callUnary(ctx, req, s.UpdateFile, &stashyv1.UpdateFileRequest{Id: in.ID, Slug: in.Slug, Name: in.Name})
+		resp, err := callUnary(ctx, req, s.UpdateFile, &stashyv1.UpdateFileRequest{
+			Id: in.ID, Slug: in.Slug, Name: in.Name, Visibility: in.Visibility,
+		})
 		if err != nil {
 			return nil, mcpFile{}, err
 		}
 		return nil, toMCPFile(resp.File), nil
-	})
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "publish_file",
-		Description: "Make a file public, so its URL works for anyone without signing in.",
-		Annotations: idempotent,
-	}, func(ctx context.Context, req *mcp.CallToolRequest, in mcpFileID) (*mcp.CallToolResult, mcpEmpty, error) {
-		_, err := callUnary(ctx, req, s.PublishFile, &stashyv1.PublishFileRequest{Id: in.ID})
-		return nil, mcpEmpty{}, err
-	})
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "unpublish_file",
-		Description: "Make a public file private again.",
-		Annotations: idempotent,
-	}, func(ctx context.Context, req *mcp.CallToolRequest, in mcpFileID) (*mcp.CallToolResult, mcpEmpty, error) {
-		_, err := callUnary(ctx, req, s.UnpublishFile, &stashyv1.UnpublishFileRequest{Id: in.ID})
-		return nil, mcpEmpty{}, err
 	})
 
 	mcp.AddTool(server, &mcp.Tool{

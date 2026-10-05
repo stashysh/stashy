@@ -27,10 +27,12 @@
           <td class="px-4 py-3"><code class="inline-block max-w-full truncate align-middle bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-xs border border-gray-200" title="{{.ContentType}}">{{.ContentType}}</code></td>
           <td class="px-4 py-3 text-gray-500 tabular-nums">{{.Size}}</td>
           <td class="px-4 py-3">
-            {{if .Public}}
-            <span class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">Public</span>
+            {{if eq .Visibility "public"}}
+            <span title="Anyone with the link" class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">Public</span>
+            {{else if eq .Visibility "internal"}}
+            <span title="Any signed-in user with the link" class="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700 ring-1 ring-inset ring-blue-600/20">Internal</span>
             {{else}}
-            <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-500/10">Private</span>
+            <span title="Only you" class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-500/10">Private</span>
             {{end}}
           </td>
           <td class="px-4 py-3 text-gray-500 tabular-nums">{{.CreatedAt}}</td>

@@ -64,7 +64,7 @@ type fileRow struct {
 	URL         string // absolute canonical URL, for the copy button
 	ContentType string
 	Size        string
-	Public      bool
+	Visibility  string // one of the db.Visibility* values
 	CreatedAt   string
 }
 
@@ -141,7 +141,7 @@ func (h *Handler) FilesPage(w http.ResponseWriter, r *http.Request) {
 			URL:         h.hostname + path,
 			ContentType: f.ContentType,
 			Size:        formatSize(f.Size),
-			Public:      f.Public,
+			Visibility:  f.Visibility,
 			CreatedAt:   f.CreatedAt.Local().Format("2006-01-02 15:04"),
 		})
 	}

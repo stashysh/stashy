@@ -115,13 +115,21 @@ func fileHandler(database *db.DB, files *service.FileService, sessions *auth.Ses
 			return
 		}
 
-		if !f.Public {
-			if _, ok := sessions.GetUserID(r); !ok {
+		// Anything but public needs a signed-in user, and anything but internal
+		// (i.e. private) needs the owner, so an unexpected value fails closed.
+		if f.Visibility != db.VisibilityPublic {
+			userID, ok := sessions.GetUserID(r)
+			if !ok {
 				if shouldRedirectToLogin(r) {
 					http.Redirect(w, r, "/auth/google/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusTemporaryRedirect)
 					return
 				}
 				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				return
+			}
+			// 404 rather than 403, so a private file's existence isn't revealed.
+			if f.Visibility != db.VisibilityInternal && userID != f.Owner {
+				http.NotFound(w, r)
 				return
 			}
 		}
