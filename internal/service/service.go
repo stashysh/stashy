@@ -69,6 +69,7 @@ func (s *FileService) canonicalURL(f *db.File) string {
 func (s *FileService) fileProto(f *db.File) *stashyv1.File {
 	return &stashyv1.File{
 		Id:          f.ID,
+		Name:        f.Name,
 		Url:         s.canonicalURL(f),
 		ContentType: f.ContentType,
 		Size:        f.Size,
@@ -82,7 +83,7 @@ func (s *FileService) fileProto(f *db.File) *stashyv1.File {
 // putFile streams r into storage under a fresh id and records the metadata
 // row. Bytes are written first; if the insert fails the orphaned bytes are
 // removed so the database stays the source of truth.
-func (s *FileService) putFile(ctx context.Context, owner, contentType string, r io.Reader) (*db.File, error) {
+func (s *FileService) putFile(ctx context.Context, owner, slug, name, contentType string, r io.Reader) (*db.File, error) {
 	id, err := storage.NewID()
 	if err != nil {
 		return nil, fmt.Errorf("generating id: %w", err)
@@ -93,7 +94,7 @@ func (s *FileService) putFile(ctx context.Context, owner, contentType string, r 
 		return nil, err
 	}
 
-	f, err := s.db.CreateFile(ctx, id, owner, contentType, size)
+	f, err := s.db.CreateFile(ctx, id, owner, slug, name, contentType, size)
 	if err != nil {
 		if derr := s.store.Delete(ctx, id); derr != nil {
 			log.Printf("cleaning up %s after failed insert: %v", id, derr)
@@ -126,11 +127,17 @@ func (s *FileService) CreateFile(
 ) (*connect.Response[stashyv1.CreateFileResponse], error) {
 	owner, _ := auth.UserIDFromContext(ctx)
 
-	// Read first chunk to get content type.
-	var contentType string
+	// Read first chunk to get content type, slug, and name.
+	var contentType, slug, name string
 	var firstData []byte
 	for stream.Receive() {
 		msg := stream.Msg()
+		if msg.Slug != nil {
+			slug = *msg.Slug
+		}
+		if msg.Name != nil {
+			name = *msg.Name
+		}
 		if msg.Content == nil {
 			continue
 		}
@@ -156,7 +163,7 @@ func (s *FileService) CreateFile(
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		putResult.file, putResult.err = s.putFile(ctx, owner, contentType, pr)
+		putResult.file, putResult.err = s.putFile(ctx, owner, slug, name, contentType, pr)
 	}()
 
 	if len(firstData) > 0 {
@@ -298,6 +305,11 @@ func (s *FileService) UpdateFile(
 	// format is enforced by the protovalidate interceptor.
 	if req.Msg.Slug != nil {
 		if err := s.db.SetFileSlug(ctx, id, owner, *req.Msg.Slug); err != nil {
+			return nil, fileError(err)
+		}
+	}
+	if req.Msg.Name != nil {
+		if err := s.db.SetFileName(ctx, id, owner, *req.Msg.Name); err != nil {
 			return nil, fileError(err)
 		}
 	}

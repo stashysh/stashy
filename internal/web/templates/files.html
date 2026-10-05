@@ -5,35 +5,40 @@
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
   {{if .Files}}
   <div class="overflow-x-auto">
-    <table class="w-full text-left text-sm whitespace-nowrap">
+    <table class="w-full table-fixed text-left text-sm whitespace-nowrap">
       <thead class="bg-gray-50 text-gray-500 uppercase tracking-wider text-xs font-medium border-b border-gray-200">
         <tr>
-          <th class="px-6 py-4">ID</th>
-          <th class="px-6 py-4">Slug</th>
-          <th class="px-6 py-4">Type</th>
-          <th class="px-6 py-4">Size</th>
-          <th class="px-6 py-4">Visibility</th>
-          <th class="px-6 py-4">Created</th>
-          <th class="px-6 py-4"></th>
+          <th class="w-48 px-4 py-4">ID</th>
+          <th class="px-4 py-4">Slug</th>
+          <th class="px-4 py-4">Name</th>
+          <th class="w-44 px-4 py-4">Type</th>
+          <th class="w-20 px-4 py-4">Size</th>
+          <th class="w-24 px-4 py-4">Visibility</th>
+          <th class="w-32 px-4 py-4">Created</th>
+          <th class="w-12 px-4 py-4"><span class="sr-only">Actions</span></th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-gray-200">
+      <tbody class="divide-y divide-gray-200 text-xs">
         {{range .Files}}
         <tr class="hover:bg-gray-50 transition-colors">
-          <td class="px-6 py-3"><a href="{{.Path}}" target="_blank" rel="noopener" class="text-brand-600 hover:text-brand-800 hover:underline font-mono text-xs font-medium">{{.ID}}</a></td>
-          <td class="px-6 py-3">{{if .Slug}}<code class="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-xs border border-gray-200">{{.Slug}}</code>{{else}}<span class="text-gray-400">&mdash;</span>{{end}}</td>
-          <td class="px-6 py-3"><code class="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-xs border border-gray-200">{{.ContentType}}</code></td>
-          <td class="px-6 py-3 text-gray-500 tabular-nums">{{.Size}}</td>
-          <td class="px-6 py-3">
+          <td class="px-4 py-3"><a href="{{.Path}}" target="_blank" rel="noopener" title="{{.URL}}" class="text-brand-600 hover:text-brand-800 hover:underline font-mono text-xs font-medium">{{.ID}}</a></td>
+          <td class="px-4 py-3">{{if .Slug}}<code class="inline-block max-w-full truncate align-middle bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-xs border border-gray-200" title="{{.Slug}}">{{.Slug}}</code>{{else}}<span class="text-gray-400">&mdash;</span>{{end}}</td>
+          <td class="px-4 py-3 truncate"{{if .Name}} title="{{.Name}}"{{end}}>{{if .Name}}{{.Name}}{{else}}<span class="text-gray-400">&mdash;</span>{{end}}</td>
+          <td class="px-4 py-3"><code class="inline-block max-w-full truncate align-middle bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-xs border border-gray-200" title="{{.ContentType}}">{{.ContentType}}</code></td>
+          <td class="px-4 py-3 text-gray-500 tabular-nums">{{.Size}}</td>
+          <td class="px-4 py-3">
             {{if .Public}}
             <span class="inline-flex items-center rounded-full bg-green-50 px-2 py-0.5 text-xs font-medium text-green-700 ring-1 ring-inset ring-green-600/20">Public</span>
             {{else}}
             <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600 ring-1 ring-inset ring-gray-500/10">Private</span>
             {{end}}
           </td>
-          <td class="px-6 py-3 text-gray-500 tabular-nums">{{.CreatedAt}}</td>
-          <td class="px-6 py-3 text-right">
-            <button type="button" data-url="{{.URL}}" onclick="copyURL(this)" class="text-xs font-medium text-gray-500 hover:text-gray-900 border border-gray-200 hover:border-gray-300 rounded-md px-2 py-1 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">Copy URL</button>
+          <td class="px-4 py-3 text-gray-500 tabular-nums">{{.CreatedAt}}</td>
+          <td class="px-4 py-3 text-right">
+            <button type="button" data-url="{{.URL}}" onclick="copyURL(this)" title="Copy URL" aria-label="Copy URL" class="p-1.5 rounded-md text-gray-400 hover:text-gray-900 hover:bg-gray-100 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand-500">
+              <svg aria-hidden="true" data-icon="copy" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+              <svg aria-hidden="true" data-icon="copied" class="w-4 h-4 hidden text-brand-600" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" /></svg>
+            </button>
           </td>
         </tr>
         {{end}}
@@ -68,9 +73,16 @@
 <script>
   async function copyURL(btn) {
     await navigator.clipboard.writeText(btn.dataset.url);
-    const original = btn.textContent;
-    btn.textContent = 'Copied!';
-    setTimeout(() => btn.textContent = original, 2000);
+    const copy = btn.querySelector('[data-icon="copy"]');
+    const copied = btn.querySelector('[data-icon="copied"]');
+    copy.classList.add('hidden');
+    copied.classList.remove('hidden');
+    btn.title = 'Copied!';
+    setTimeout(() => {
+      copy.classList.remove('hidden');
+      copied.classList.add('hidden');
+      btn.title = 'Copy URL';
+    }, 2000);
   }
 </script>
 {{end}}

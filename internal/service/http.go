@@ -4,12 +4,16 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"buf.build/go/protovalidate"
+	"google.golang.org/genproto/googleapis/api/httpbody"
 	"google.golang.org/protobuf/encoding/protojson"
 
+	stashyv1 "github.com/stashysh/stashy/gen/stashy/v1"
 	"github.com/stashysh/stashy/internal/auth"
 	"github.com/stashysh/stashy/internal/db"
 )
@@ -32,6 +36,13 @@ func (s *FileService) ServeFile(w http.ResponseWriter, r *http.Request, id strin
 	// Set once for every path below: full GET, HEAD, and range responses.
 	w.Header().Set("Content-Type", f.ContentType)
 	w.Header().Set("Accept-Ranges", "bytes")
+	if f.Name != "" {
+		// inline keeps browsers displaying the file; the filename is used
+		// when it is saved. FormatMediaType encodes non-ASCII names per RFC 2231.
+		if cd := mime.FormatMediaType("inline", map[string]string{"filename": f.Name}); cd != "" {
+			w.Header().Set("Content-Disposition", cd)
+		}
+	}
 
 	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
 		s.serveFileRange(w, r, id, f.Size, rangeHeader)
@@ -180,7 +191,16 @@ func (s *FileService) HTTPCreateFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	f, err := s.putFile(r.Context(), owner, ct, r.Body)
+	query := r.URL.Query()
+	slug, name := query.Get("slug"), query.Get("name")
+	// Validate against the same rules as the CreateFile RPC.
+	msg := &stashyv1.CreateFileRequest{Content: &httpbody.HttpBody{}, Slug: &slug, Name: &name}
+	if err := protovalidate.Validate(msg); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	f, err := s.putFile(r.Context(), owner, slug, name, ct, r.Body)
 	if err != nil {
 		log.Printf("HTTPCreateFile: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)

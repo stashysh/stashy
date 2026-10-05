@@ -16,24 +16,29 @@ message File {
     required: true
     string: {pattern: "^[A-Za-z0-9_-]{21}$"}
   }];
-  // Canonical URL of the file, including the slug when set.
-  string url = 2 [(buf.validate.field) = {
-    required: true
-    string: {uri: true}
-  }];
-  // Media type of the content, from the Content-Type of the upload.
-  string content_type = 3 [(buf.validate.field).required = true];
-  // Size of the content in bytes.
-  int64 size = 4 [(buf.validate.field).int64.gte = 0];
-  // Whether anyone can open the URL without signing in.
-  bool public = 5;
   // Human-readable name at the end of the URL. Empty when not set.
-  string slug = 6 [(buf.validate.field).string = {
+  string slug = 2 [(buf.validate.field).string = {
     pattern: "^[A-Za-z0-9._~-]*$"
     max_len: 128
   }];
-  google.protobuf.Timestamp created_at = 7 [(buf.validate.field).required = true];
-  google.protobuf.Timestamp updated_at = 8 [(buf.validate.field).required = true];
+  // Canonical URL of the file, including the slug when set.
+  string url = 3 [(buf.validate.field) = {
+    required: true
+    string: {uri: true}
+  }];
+  // Original filename, e.g. "Quarterly report.pdf". Empty when not set.
+  string name = 4 [(buf.validate.field).string = {
+    max_len: 255
+    pattern: "^[^/\\x00-\\x1F\\x7F]*$"
+  }];
+  // Media type of the content, from the Content-Type of the upload.
+  string content_type = 5 [(buf.validate.field).required = true];
+  // Size of the content in bytes.
+  int64 size = 6 [(buf.validate.field).int64.gte = 0];
+  // Whether anyone can open the URL without signing in.
+  bool public = 7;
+  google.protobuf.Timestamp created_at = 8 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp updated_at = 9 [(buf.validate.field).required = true];
 }
 
 service FileService {
@@ -46,6 +51,33 @@ service FileService {
       response_body: "file"
     };
     option (gnostic.openapi.v3.operation) = {
+      parameters: {
+        parameter: {
+          name: "slug"
+          in: "query"
+          description: "Human-readable end of the file's URL (/{id}/{slug})."
+          schema: {
+            schema: {
+              type: "string"
+              max_length: 128
+              pattern: "^[A-Za-z0-9._~-]*$"
+            }
+          }
+        }
+      }
+      parameters: {
+        parameter: {
+          name: "name"
+          in: "query"
+          description: "Original filename, e.g. \"Quarterly report.pdf\"."
+          schema: {
+            schema: {
+              type: "string"
+              max_length: 255
+            }
+          }
+        }
+      }
       request_body: {
         request_body: {
           content: {
@@ -184,6 +216,18 @@ service FileService {
 
 message CreateFileRequest {
   google.api.HttpBody content = 1 [(buf.validate.field).required = true];
+  // Human-readable end of the file's URL (/{id}/{slug}). Over REST, pass it as
+  // the slug query parameter.
+  optional string slug = 2 [(buf.validate.field).string = {
+    pattern: "^[A-Za-z0-9._~-]*$"
+    max_len: 128
+  }];
+  // Original filename, e.g. "Quarterly report.pdf". Over REST, pass it as the
+  // name query parameter.
+  optional string name = 3 [(buf.validate.field).string = {
+    max_len: 255
+    pattern: "^[^/\\x00-\\x1F\\x7F]*$"
+  }];
 }
 
 message CreateFileResponse {
@@ -237,6 +281,11 @@ message UpdateFileRequest {
   optional string slug = 2 [(buf.validate.field).string = {
     pattern: "^[A-Za-z0-9._~-]*$"
     max_len: 128
+  }];
+  // Original filename. An empty string clears it.
+  optional string name = 3 [(buf.validate.field).string = {
+    max_len: 255
+    pattern: "^[^/\\x00-\\x1F\\x7F]*$"
   }];
 }
 

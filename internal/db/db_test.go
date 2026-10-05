@@ -37,7 +37,7 @@ func TestListFilesKeysetPagination(t *testing.T) {
 	var ids []string
 	for i := 0; i < 5; i++ {
 		id := fmt.Sprintf("file-%016d", i) // 21 chars
-		if _, err := database.CreateFile(t.Context(), id, user.ID, "text/plain", 1); err != nil {
+		if _, err := database.CreateFile(t.Context(), id, user.ID, "", "", "text/plain", 1); err != nil {
 			t.Fatalf("CreateFile %s: %v", id, err)
 		}
 		if _, err := database.sql.ExecContext(t.Context(),
@@ -87,7 +87,7 @@ func TestListFilesKeysetTieBreakOnEqualTimes(t *testing.T) {
 	ts := time.Now().UTC().Truncate(time.Second)
 	for i := 0; i < 5; i++ {
 		id := fmt.Sprintf("file-%016d", i)
-		if _, err := database.CreateFile(t.Context(), id, user.ID, "text/plain", 1); err != nil {
+		if _, err := database.CreateFile(t.Context(), id, user.ID, "", "", "text/plain", 1); err != nil {
 			t.Fatalf("CreateFile %s: %v", id, err)
 		}
 		if _, err := database.sql.ExecContext(t.Context(),
@@ -118,5 +118,32 @@ func TestListFilesKeysetTieBreakOnEqualTimes(t *testing.T) {
 
 	if len(seen) != 5 {
 		t.Fatalf("collected %d distinct files across pages, want 5", len(seen))
+	}
+}
+
+func TestFileName(t *testing.T) {
+	database := newTestDB(t)
+	user, err := database.UpsertUser(t.Context(), "g-1", "a@b.c", "A")
+	if err != nil {
+		t.Fatalf("UpsertUser: %v", err)
+	}
+
+	const id = "name-0000000000000000" // 21 chars
+	if _, err := database.CreateFile(t.Context(), id, user.ID, "", "Quarterly report.pdf", "application/pdf", 1); err != nil {
+		t.Fatalf("CreateFile: %v", err)
+	}
+	if f, err := database.GetFile(t.Context(), id); err != nil || f.Name != "Quarterly report.pdf" {
+		t.Fatalf("GetFile: name = %q, err = %v; want the created name", f.Name, err)
+	}
+
+	if err := database.SetFileName(t.Context(), id, user.ID, ""); err != nil {
+		t.Fatalf("SetFileName: %v", err)
+	}
+	if f, _ := database.GetFile(t.Context(), id); f.Name != "" {
+		t.Fatalf("name = %q after clearing, want empty", f.Name)
+	}
+
+	if err := database.SetFileName(t.Context(), id, "other-user", "x"); err == nil {
+		t.Fatalf("SetFileName by another user: want an error")
 	}
 }
