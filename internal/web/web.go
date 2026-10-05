@@ -58,6 +58,7 @@ type layoutData struct {
 
 type fileRow struct {
 	ID          string
+	Name        string // original filename; empty when not set
 	Slug        string
 	Path        string // canonical path: /{id}/{slug}, or /{id} without a slug
 	URL         string // absolute canonical URL, for the copy button
@@ -134,13 +135,14 @@ func (h *Handler) FilesPage(w http.ResponseWriter, r *http.Request) {
 		}
 		data.Files = append(data.Files, fileRow{
 			ID:          f.ID,
+			Name:        f.Name,
 			Slug:        f.Slug,
 			Path:        path,
 			URL:         h.hostname + path,
 			ContentType: f.ContentType,
 			Size:        formatSize(f.Size),
 			Public:      f.Public,
-			CreatedAt:   f.CreatedAt.Local().Format(time.DateTime),
+			CreatedAt:   f.CreatedAt.Local().Format("2006-01-02 15:04"),
 		})
 	}
 	h.render(w, "files", data)

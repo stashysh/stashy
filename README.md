@@ -114,21 +114,26 @@ The API only works with your own files: every endpoint below acts on files creat
 
 ```bash
 curl -H "Authorization: Bearer <api-key>" \
-  -X POST http://localhost:8080/v1/files \
+  -X POST "http://localhost:8080/v1/files?slug=my-photo&name=photo.png" \
   -H "Content-Type: image/png" \
   --data-binary @photo.png
 ```
+
+Both query parameters are optional: `slug` is the human-readable end of the
+file's URL (`/{id}/my-photo`), and `name` is the original filename, shown in the
+file list and used as the filename when the file is downloaded.
 
 Creating and updating a file return its metadata:
 
 ```json
 {
   "id": "V1StGXR8_Z5jdHi6B-myT",
-  "url": "http://localhost:8080/V1StGXR8_Z5jdHi6B-myT",
+  "slug": "my-photo",
+  "url": "http://localhost:8080/V1StGXR8_Z5jdHi6B-myT/my-photo",
+  "name": "photo.png",
   "content_type": "image/png",
   "size": "48213",
   "public": false,
-  "slug": "",
   "created_at": "2026-10-02T12:00:00Z",
   "updated_at": "2026-10-02T12:00:00Z"
 }
@@ -170,11 +175,11 @@ Returns the file's bytes. Supports `Range` requests.
 curl -H "Authorization: Bearer <api-key>" \
   -X PATCH http://localhost:8080/v1/files/{id} \
   -H "Content-Type: application/json" \
-  -d '{"slug": "my-photo"}'
+  -d '{"name": "My photo.png", "slug": "my-photo"}'
 ```
 
-Updates a file's fields. Currently supports `slug`, a human-readable name;
-send `{"slug": ""}` to clear it.
+Updates a file's `name` (its original filename) and `slug` (the human-readable
+end of its URL). Omitted fields are left unchanged; send `""` to clear one.
 
 ### Update a file's content
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -40,7 +41,7 @@ func createTestFile(t *testing.T, database *db.DB, owner string) *db.File {
 	if err != nil {
 		t.Fatalf("NewID: %v", err)
 	}
-	f, err := database.CreateFile(t.Context(), id, owner, "text/plain", 1)
+	f, err := database.CreateFile(t.Context(), id, owner, "", "", "text/plain", 1)
 	if err != nil {
 		t.Fatalf("CreateFile: %v", err)
 	}
@@ -307,5 +308,76 @@ func TestConnectGetForReads(t *testing.T) {
 	}
 	if len(methods) != 2 || methods[0] != http.MethodGet || methods[1] != http.MethodGet {
 		t.Fatalf("request methods = %v, want two GETs", methods)
+	}
+}
+
+func TestFileNames(t *testing.T) {
+	svc, _ := newListService(t, 0)
+	transcoder := newTestTranscoder(t, svc)
+
+	// Upload with a name and slug, as the desktop client does.
+	req := httptest.NewRequest(http.MethodPost, "/v1/files?slug=q3-report.pdf&name="+url.QueryEscape("Quarterly report.pdf"), strings.NewReader("%PDF"))
+	req.Header.Set("Content-Type", "application/pdf")
+	rec := serveAs(http.HandlerFunc(svc.HTTPCreateFile), "1", req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("create: status %d; body: %s", rec.Code, rec.Body)
+	}
+	var created map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	id, _ := created["id"].(string)
+	if created["name"] != "Quarterly report.pdf" || created["slug"] != "q3-report.pdf" || created["url"] != "http://example.test/"+id+"/q3-report.pdf" {
+		t.Fatalf("create: %v", created)
+	}
+
+	// Download suggests the name; non-ASCII names are RFC 2231 encoded.
+	download := func() string {
+		req := httptest.NewRequest(http.MethodGet, "/v1/files/"+id+"/content", nil)
+		req.SetPathValue("id", id)
+		return serveAs(http.HandlerFunc(svc.HTTPGetFileContent), "1", req).Header().Get("Content-Disposition")
+	}
+	if cd := download(); cd != `inline; filename="Quarterly report.pdf"` {
+		t.Fatalf("Content-Disposition = %q", cd)
+	}
+
+	// Rename over REST, then clear.
+	patch := func(body string) map[string]any {
+		req := httptest.NewRequest(http.MethodPatch, "/v1/files/"+id, strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := serveAs(transcoder, "1", req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("PATCH %s: status %d; body: %s", body, rec.Code, rec.Body)
+		}
+		var f map[string]any
+		json.Unmarshal(rec.Body.Bytes(), &f)
+		return f
+	}
+	if f := patch(`{"name": "Отчёт.pdf"}`); f["name"] != "Отчёт.pdf" {
+		t.Fatalf("rename: name = %v", f["name"])
+	}
+	if cd := download(); cd != `inline; filename*=utf-8''%D0%9E%D1%82%D1%87%D1%91%D1%82.pdf` {
+		t.Fatalf("Content-Disposition = %q", cd)
+	}
+	if f := patch(`{"name": ""}`); f["name"] != "" {
+		t.Fatalf("clear: name = %v", f["name"])
+	}
+	if cd := download(); cd != "" {
+		t.Fatalf("Content-Disposition = %q without a name, want none", cd)
+	}
+
+	// Names can't contain path separators or control characters, and slugs
+	// are URL-safe.
+	for _, bad := range []string{
+		"name=" + url.QueryEscape("a/b.txt"),
+		"name=" + url.QueryEscape("line\nbreak"),
+		"name=" + strings.Repeat("x", 256),
+		"slug=" + url.QueryEscape("has spaces"),
+	} {
+		req := httptest.NewRequest(http.MethodPost, "/v1/files?"+bad, strings.NewReader("x"))
+		req.Header.Set("Content-Type", "text/plain")
+		if rec := serveAs(http.HandlerFunc(svc.HTTPCreateFile), "1", req); rec.Code != http.StatusBadRequest {
+			t.Errorf("create with %s: status %d, want 400", bad, rec.Code)
+		}
 	}
 }

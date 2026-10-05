@@ -69,7 +69,7 @@ func TestFilesPageListsFiles(t *testing.T) {
 		t.Fatalf("UpsertUser: %v", err)
 	}
 	const fileID = "abc123abc123abc123abc" // 21 chars, nanoid-shaped
-	f, err := database.CreateFile(t.Context(), fileID, user.ID, "image/png", 42)
+	f, err := database.CreateFile(t.Context(), fileID, user.ID, "", "logo.png", "image/png", 42)
 	if err != nil {
 		t.Fatalf("CreateFile: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestFilesPageListsFiles(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{fileID, "logo", "image/png", "42 B", "Private", "/" + fileID + "/logo"} {
+	for _, want := range []string{fileID, "logo.png", "logo", "image/png", "42 B", "Private", "/" + fileID + "/logo"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("files page missing %q", want)
 		}
@@ -164,5 +164,42 @@ func TestFooterShowsVersionToSignedInUsers(t *testing.T) {
 		if strings.Contains(rec.Body.String(), tc.want) {
 			t.Errorf("version %s: login page shows the version", tc.version)
 		}
+	}
+}
+
+func TestFilesPageColumns(t *testing.T) {
+	database := newTestDB(t)
+	sessions := auth.NewSessionManager("test-secret")
+	h := NewHandler(database, sessions, "http://example.test", "dev")
+	user, err := database.UpsertUser(t.Context(), "g-1", "alice@example.com", "Alice")
+	if err != nil {
+		t.Fatalf("UpsertUser: %v", err)
+	}
+	for id, name := range map[string]string{
+		"named0000000000000000": "Report.pdf",
+		"unnamed00000000000000": "",
+	} {
+		if _, err := database.CreateFile(t.Context(), id, user.ID, "", name, "text/plain", 1); err != nil {
+			t.Fatalf("CreateFile: %v", err)
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	h.FilesPage(rec, sessionRequest(t, sessions, "/", user.ID))
+	body := rec.Body.String()
+
+	// IDs link to the file; names are plain text; every row has a copy icon.
+	for _, want := range []string{
+		">named0000000000000000</a>",
+		">unnamed00000000000000</a>",
+		">Report.pdf</td>",
+		`aria-label="Copy URL"`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("files page missing %q", want)
+		}
+	}
+	if strings.Contains(body, ">Report.pdf</a>") {
+		t.Errorf("names should not be links")
 	}
 }

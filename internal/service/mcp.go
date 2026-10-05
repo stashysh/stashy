@@ -46,11 +46,12 @@ func (s *FileService) MCPHandler(database *db.DB, version string) http.Handler {
 // mapping, size is a number.
 type mcpFile struct {
 	ID          string    `json:"id"`
+	Slug        string    `json:"slug" jsonschema:"human-readable end of the URL; empty when not set"`
 	URL         string    `json:"url" jsonschema:"canonical URL of the file"`
+	Name        string    `json:"name" jsonschema:"original filename; empty when not set"`
 	ContentType string    `json:"content_type"`
 	Size        int64     `json:"size" jsonschema:"size in bytes"`
 	Public      bool      `json:"public" jsonschema:"whether the URL works without signing in"`
-	Slug        string    `json:"slug"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
@@ -58,11 +59,12 @@ type mcpFile struct {
 func toMCPFile(f *stashyv1.File) mcpFile {
 	return mcpFile{
 		ID:          f.Id,
+		Slug:        f.Slug,
 		URL:         f.Url,
+		Name:        f.Name,
 		ContentType: f.ContentType,
 		Size:        f.Size,
 		Public:      f.Public,
-		Slug:        f.Slug,
 		CreatedAt:   f.CreatedAt.AsTime(),
 		UpdatedAt:   f.UpdatedAt.AsTime(),
 	}
@@ -84,6 +86,7 @@ type mcpListFilesOutput struct {
 type mcpUpdateFileInput struct {
 	ID   string  `json:"id" jsonschema:"file id"`
 	Slug *string `json:"slug,omitempty" jsonschema:"human-readable name used in the file URL; empty string clears it"`
+	Name *string `json:"name,omitempty" jsonschema:"original filename, e.g. Quarterly report.pdf; empty string clears it"`
 }
 
 type mcpEmpty struct{}
@@ -123,10 +126,10 @@ func (s *FileService) addMCPTools(server *mcp.Server) {
 
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "update_file",
-		Description: "Update a file's slug, the human-readable name at the end of its URL.",
+		Description: "Update a file's name (its original filename) or slug (the human-readable end of its URL).",
 		Annotations: idempotent,
 	}, func(ctx context.Context, req *mcp.CallToolRequest, in mcpUpdateFileInput) (*mcp.CallToolResult, mcpFile, error) {
-		resp, err := callUnary(ctx, req, s.UpdateFile, &stashyv1.UpdateFileRequest{Id: in.ID, Slug: in.Slug})
+		resp, err := callUnary(ctx, req, s.UpdateFile, &stashyv1.UpdateFileRequest{Id: in.ID, Slug: in.Slug, Name: in.Name})
 		if err != nil {
 			return nil, mcpFile{}, err
 		}

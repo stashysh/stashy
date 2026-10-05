@@ -37,6 +37,7 @@ type APIKey struct {
 type File struct {
 	ID          string
 	Owner       string
+	Name        string // original filename; empty when not set
 	ContentType string
 	Size        int64
 	Public      bool
@@ -224,30 +225,32 @@ func (d *DB) DeleteAPIKey(ctx context.Context, keyID, userID string) error {
 	return nil
 }
 
-const fileColumns = `id, owner_id, content_type, size, public, slug, created_at, updated_at`
+const fileColumns = `id, owner_id, name, content_type, size, public, slug, created_at, updated_at`
 
 func scanFile(row interface{ Scan(...any) error }) (*File, error) {
 	var f File
-	err := row.Scan(&f.ID, &f.Owner, &f.ContentType, &f.Size, &f.Public, &f.Slug, &f.CreatedAt, &f.UpdatedAt)
+	err := row.Scan(&f.ID, &f.Owner, &f.Name, &f.ContentType, &f.Size, &f.Public, &f.Slug, &f.CreatedAt, &f.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
 	return &f, nil
 }
 
-func (d *DB) CreateFile(ctx context.Context, id, owner, contentType string, size int64) (*File, error) {
+func (d *DB) CreateFile(ctx context.Context, id, owner, slug, name, contentType string, size int64) (*File, error) {
 	// File times are stored in UTC: SQLite compares timestamps as text, so a
 	// stable zone (and no monotonic-clock suffix) keeps ordering and the
 	// keyset cursor in ListFiles correct.
 	now := time.Now().UTC()
-	query := d.q(`INSERT INTO files (id, owner_id, content_type, size, public, slug, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, '', ?, ?)`)
-	if _, err := d.sql.ExecContext(ctx, query, id, owner, contentType, size, false, now, now); err != nil {
+	query := d.q(`INSERT INTO files (id, owner_id, name, content_type, size, public, slug, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if _, err := d.sql.ExecContext(ctx, query, id, owner, name, contentType, size, false, slug, now, now); err != nil {
 		return nil, fmt.Errorf("inserting file: %w", err)
 	}
 	return &File{
 		ID:          id,
 		Owner:       owner,
+		Name:        name,
+		Slug:        slug,
 		ContentType: contentType,
 		Size:        size,
 		CreatedAt:   now,
@@ -340,6 +343,18 @@ func (d *DB) SetFilePublic(ctx context.Context, id, owner string, public bool) e
 }
 
 // SetFileSlug sets the file's slug, or clears it when slug is empty.
+// SetFileName sets a file's original filename; empty clears it.
+func (d *DB) SetFileName(ctx context.Context, id, owner, name string) error {
+	if err := d.CheckFileOwner(ctx, id, owner); err != nil {
+		return err
+	}
+	query := d.q(`UPDATE files SET name = ?, updated_at = ? WHERE id = ?`)
+	if _, err := d.sql.ExecContext(ctx, query, name, time.Now().UTC(), id); err != nil {
+		return fmt.Errorf("updating file name: %w", err)
+	}
+	return nil
+}
+
 func (d *DB) SetFileSlug(ctx context.Context, id, owner, slug string) error {
 	if err := d.CheckFileOwner(ctx, id, owner); err != nil {
 		return err

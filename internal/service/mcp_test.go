@@ -136,7 +136,7 @@ func TestMCPTools(t *testing.T) {
 		t.Errorf("update_file should be marked non-destructive")
 	}
 
-	created, err := svc.putFile(t.Context(), firstUserID(t, svc), "text/markdown", strings.NewReader("# Notes"))
+	created, err := svc.putFile(t.Context(), firstUserID(t, svc), "", "", "text/markdown", strings.NewReader("# Notes"))
 	if err != nil {
 		t.Fatalf("putFile: %v", err)
 	}
@@ -146,9 +146,9 @@ func TestMCPTools(t *testing.T) {
 		t.Fatalf("get_file = %+v", got)
 	}
 
-	updated := toolFile(t, alice, "update_file", map[string]any{"id": created.ID, "slug": "notes.md"})
-	if updated.URL != "http://example.test/"+created.ID+"/notes.md" {
-		t.Fatalf("updated.URL = %s", updated.URL)
+	updated := toolFile(t, alice, "update_file", map[string]any{"id": created.ID, "slug": "notes.md", "name": "Notes.md"})
+	if updated.URL != "http://example.test/"+created.ID+"/notes.md" || updated.Name != "Notes.md" {
+		t.Fatalf("updated = %+v", updated)
 	}
 
 	if res := callTool(t, alice, "publish_file", map[string]any{"id": created.ID}); res.IsError {
