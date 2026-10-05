@@ -73,7 +73,7 @@ func (s *FileService) fileProto(f *db.File) *stashyv1.File {
 		Url:         s.canonicalURL(f),
 		ContentType: f.ContentType,
 		Size:        f.Size,
-		Public:      f.Public,
+		Visibility:  f.Visibility,
 		Slug:        f.Slug,
 		CreatedAt:   timestamppb.New(f.CreatedAt),
 		UpdatedAt:   timestamppb.New(f.UpdatedAt),
@@ -83,18 +83,21 @@ func (s *FileService) fileProto(f *db.File) *stashyv1.File {
 // putFile streams r into storage under a fresh id and records the metadata
 // row. Bytes are written first; if the insert fails the orphaned bytes are
 // removed so the database stays the source of truth.
-func (s *FileService) putFile(ctx context.Context, owner, slug, name, contentType string, r io.Reader) (*db.File, error) {
+// meta carries the new file's owner, content type, and optional slug, name,
+// and visibility; the id and size are filled in here.
+func (s *FileService) putFile(ctx context.Context, meta db.File, r io.Reader) (*db.File, error) {
 	id, err := storage.NewID()
 	if err != nil {
 		return nil, fmt.Errorf("generating id: %w", err)
 	}
 
-	size, err := s.store.Put(ctx, id, contentType, r)
+	size, err := s.store.Put(ctx, id, meta.ContentType, r)
 	if err != nil {
 		return nil, err
 	}
 
-	f, err := s.db.CreateFile(ctx, id, owner, slug, name, contentType, size)
+	meta.ID, meta.Size = id, size
+	f, err := s.db.CreateFile(ctx, meta)
 	if err != nil {
 		if derr := s.store.Delete(ctx, id); derr != nil {
 			log.Printf("cleaning up %s after failed insert: %v", id, derr)
@@ -127,8 +130,8 @@ func (s *FileService) CreateFile(
 ) (*connect.Response[stashyv1.CreateFileResponse], error) {
 	owner, _ := auth.UserIDFromContext(ctx)
 
-	// Read first chunk to get content type, slug, and name.
-	var contentType, slug, name string
+	// Read first chunk to get content type, slug, name, and visibility.
+	var contentType, slug, name, visibility string
 	var firstData []byte
 	for stream.Receive() {
 		msg := stream.Msg()
@@ -137,6 +140,9 @@ func (s *FileService) CreateFile(
 		}
 		if msg.Name != nil {
 			name = *msg.Name
+		}
+		if msg.Visibility != nil {
+			visibility = *msg.Visibility
 		}
 		if msg.Content == nil {
 			continue
@@ -163,7 +169,9 @@ func (s *FileService) CreateFile(
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		putResult.file, putResult.err = s.putFile(ctx, owner, slug, name, contentType, pr)
+		putResult.file, putResult.err = s.putFile(ctx, db.File{
+			Owner: owner, Slug: slug, Name: name, Visibility: visibility, ContentType: contentType,
+		}, pr)
 	}()
 
 	if len(firstData) > 0 {
@@ -313,6 +321,11 @@ func (s *FileService) UpdateFile(
 			return nil, fileError(err)
 		}
 	}
+	if req.Msg.Visibility != nil {
+		if err := s.db.SetFileVisibility(ctx, id, owner, *req.Msg.Visibility); err != nil {
+			return nil, fileError(err)
+		}
+	}
 
 	// SetFileSlug checks ownership, but an update with no fields skips it.
 	f, err := s.ownedFile(ctx, id, owner)
@@ -343,36 +356,6 @@ func (s *FileService) DeleteFile(
 		log.Printf("deleting bytes for %s: %v", req.Msg.Id, err)
 	}
 	return connect.NewResponse(&stashyv1.DeleteFileResponse{}), nil
-}
-
-func (s *FileService) PublishFile(
-	ctx context.Context,
-	req *connect.Request[stashyv1.PublishFileRequest],
-) (*connect.Response[stashyv1.PublishFileResponse], error) {
-	owner, ok := auth.UserIDFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
-	}
-
-	if err := s.db.SetFilePublic(ctx, req.Msg.Id, owner, true); err != nil {
-		return nil, fileError(err)
-	}
-	return connect.NewResponse(&stashyv1.PublishFileResponse{}), nil
-}
-
-func (s *FileService) UnpublishFile(
-	ctx context.Context,
-	req *connect.Request[stashyv1.UnpublishFileRequest],
-) (*connect.Response[stashyv1.UnpublishFileResponse], error) {
-	owner, ok := auth.UserIDFromContext(ctx)
-	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
-	}
-
-	if err := s.db.SetFilePublic(ctx, req.Msg.Id, owner, false); err != nil {
-		return nil, fileError(err)
-	}
-	return connect.NewResponse(&stashyv1.UnpublishFileResponse{}), nil
 }
 
 const defaultListLimit = 50

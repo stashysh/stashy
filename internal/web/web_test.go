@@ -69,7 +69,7 @@ func TestFilesPageListsFiles(t *testing.T) {
 		t.Fatalf("UpsertUser: %v", err)
 	}
 	const fileID = "abc123abc123abc123abc" // 21 chars, nanoid-shaped
-	f, err := database.CreateFile(t.Context(), fileID, user.ID, "", "logo.png", "image/png", 42)
+	f, err := database.CreateFile(t.Context(), db.File{ID: fileID, Owner: user.ID, Name: "logo.png", ContentType: "image/png", Size: 42})
 	if err != nil {
 		t.Fatalf("CreateFile: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestFilesPageListsFiles(t *testing.T) {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{fileID, "logo.png", "logo", "image/png", "42 B", "Private", "/" + fileID + "/logo"} {
+	for _, want := range []string{fileID, "logo.png", "logo", "image/png", "42 B", "Internal", "/" + fileID + "/logo"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("files page missing %q", want)
 		}
@@ -179,7 +179,7 @@ func TestFilesPageColumns(t *testing.T) {
 		"named0000000000000000": "Report.pdf",
 		"unnamed00000000000000": "",
 	} {
-		if _, err := database.CreateFile(t.Context(), id, user.ID, "", name, "text/plain", 1); err != nil {
+		if _, err := database.CreateFile(t.Context(), db.File{ID: id, Owner: user.ID, Name: name, ContentType: "text/plain", Size: 1}); err != nil {
 			t.Fatalf("CreateFile: %v", err)
 		}
 	}

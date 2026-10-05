@@ -192,15 +192,24 @@ func (s *FileService) HTTPCreateFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	query := r.URL.Query()
-	slug, name := query.Get("slug"), query.Get("name")
+	meta := db.File{
+		Owner:       owner,
+		Slug:        query.Get("slug"),
+		Name:        query.Get("name"),
+		Visibility:  query.Get("visibility"),
+		ContentType: ct,
+	}
 	// Validate against the same rules as the CreateFile RPC.
-	msg := &stashyv1.CreateFileRequest{Content: &httpbody.HttpBody{}, Slug: &slug, Name: &name}
+	msg := &stashyv1.CreateFileRequest{Content: &httpbody.HttpBody{}, Slug: &meta.Slug, Name: &meta.Name}
+	if query.Has("visibility") {
+		msg.Visibility = &meta.Visibility
+	}
 	if err := protovalidate.Validate(msg); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	f, err := s.putFile(r.Context(), owner, slug, name, ct, r.Body)
+	f, err := s.putFile(r.Context(), meta, r.Body)
 	if err != nil {
 		log.Printf("HTTPCreateFile: %v", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)

@@ -37,14 +37,21 @@ type APIKey struct {
 type File struct {
 	ID          string
 	Owner       string
+	Slug        string
 	Name        string // original filename; empty when not set
 	ContentType string
 	Size        int64
-	Public      bool
-	Slug        string
+	Visibility  string // one of the Visibility* constants
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
+
+// File visibility values: who can open a file by its URL.
+const (
+	VisibilityPrivate  = "private"  // only the owner
+	VisibilityInternal = "internal" // any signed-in user
+	VisibilityPublic   = "public"   // anyone
+)
 
 type DB struct {
 	sql     *sql.DB
@@ -225,37 +232,35 @@ func (d *DB) DeleteAPIKey(ctx context.Context, keyID, userID string) error {
 	return nil
 }
 
-const fileColumns = `id, owner_id, name, content_type, size, public, slug, created_at, updated_at`
+const fileColumns = `id, owner_id, slug, name, content_type, size, visibility, created_at, updated_at`
 
 func scanFile(row interface{ Scan(...any) error }) (*File, error) {
 	var f File
-	err := row.Scan(&f.ID, &f.Owner, &f.Name, &f.ContentType, &f.Size, &f.Public, &f.Slug, &f.CreatedAt, &f.UpdatedAt)
+	err := row.Scan(&f.ID, &f.Owner, &f.Slug, &f.Name, &f.ContentType, &f.Size, &f.Visibility, &f.CreatedAt, &f.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
 	return &f, nil
 }
 
-func (d *DB) CreateFile(ctx context.Context, id, owner, slug, name, contentType string, size int64) (*File, error) {
+// CreateFile inserts f's metadata row and returns it with its timestamps set.
+// An empty Visibility defaults to VisibilityInternal.
+func (d *DB) CreateFile(ctx context.Context, f File) (*File, error) {
+	if f.Visibility == "" {
+		f.Visibility = VisibilityInternal
+	}
 	// File times are stored in UTC: SQLite compares timestamps as text, so a
 	// stable zone (and no monotonic-clock suffix) keeps ordering and the
 	// keyset cursor in ListFiles correct.
 	now := time.Now().UTC()
-	query := d.q(`INSERT INTO files (id, owner_id, name, content_type, size, public, slug, created_at, updated_at)
+	f.CreatedAt, f.UpdatedAt = now, now
+	query := d.q(`INSERT INTO files (` + fileColumns + `)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-	if _, err := d.sql.ExecContext(ctx, query, id, owner, name, contentType, size, false, slug, now, now); err != nil {
+	if _, err := d.sql.ExecContext(ctx, query,
+		f.ID, f.Owner, f.Slug, f.Name, f.ContentType, f.Size, f.Visibility, f.CreatedAt, f.UpdatedAt); err != nil {
 		return nil, fmt.Errorf("inserting file: %w", err)
 	}
-	return &File{
-		ID:          id,
-		Owner:       owner,
-		Name:        name,
-		Slug:        slug,
-		ContentType: contentType,
-		Size:        size,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}, nil
+	return &f, nil
 }
 
 func (d *DB) GetFile(ctx context.Context, id string) (*File, error) {
@@ -331,12 +336,14 @@ func (d *DB) UpdateFileContent(ctx context.Context, id, owner, contentType strin
 	return nil
 }
 
-func (d *DB) SetFilePublic(ctx context.Context, id, owner string, public bool) error {
+// SetFileVisibility sets who can open a file by its URL; visibility is one
+// of the Visibility* constants.
+func (d *DB) SetFileVisibility(ctx context.Context, id, owner, visibility string) error {
 	if err := d.CheckFileOwner(ctx, id, owner); err != nil {
 		return err
 	}
-	query := d.q(`UPDATE files SET public = ?, updated_at = ? WHERE id = ?`)
-	if _, err := d.sql.ExecContext(ctx, query, public, time.Now().UTC(), id); err != nil {
+	query := d.q(`UPDATE files SET visibility = ?, updated_at = ? WHERE id = ?`)
+	if _, err := d.sql.ExecContext(ctx, query, visibility, time.Now().UTC(), id); err != nil {
 		return fmt.Errorf("updating file visibility: %w", err)
 	}
 	return nil

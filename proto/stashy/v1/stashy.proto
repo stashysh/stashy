@@ -35,8 +35,15 @@ message File {
   string content_type = 5 [(buf.validate.field).required = true];
   // Size of the content in bytes.
   int64 size = 6 [(buf.validate.field).int64.gte = 0];
-  // Whether anyone can open the URL without signing in.
-  bool public = 7;
+  // Who can open the file by its URL: "private" (only the owner), "internal"
+  // (any signed-in user), or "public" (anyone).
+  string visibility = 7 [(buf.validate.field).string = {
+    in: [
+      "private",
+      "internal",
+      "public"
+    ]
+  }];
   google.protobuf.Timestamp created_at = 8 [(buf.validate.field).required = true];
   google.protobuf.Timestamp updated_at = 9 [(buf.validate.field).required = true];
 }
@@ -74,6 +81,21 @@ service FileService {
             schema: {
               type: "string"
               max_length: 255
+            }
+          }
+        }
+      }
+      parameters: {
+        parameter: {
+          name: "visibility"
+          in: "query"
+          description: "Who can open the file by its URL. Defaults to internal."
+          schema: {
+            schema: {
+              type: "string"
+              enum: {yaml: "private"}
+              enum: {yaml: "internal"}
+              enum: {yaml: "public"}
             }
           }
         }
@@ -196,22 +218,6 @@ service FileService {
     option idempotency_level = IDEMPOTENT;
     option (google.api.http) = {delete: "/v1/files/{id}"};
   }
-
-  // Make a file publicly accessible.
-  rpc PublishFile(PublishFileRequest) returns (PublishFileResponse) {
-    option (google.api.http) = {
-      post: "/v1/files/{id}/publish"
-      body: "*"
-    };
-  }
-
-  // Remove public access from a file.
-  rpc UnpublishFile(UnpublishFileRequest) returns (UnpublishFileResponse) {
-    option (google.api.http) = {
-      post: "/v1/files/{id}/unpublish"
-      body: "*"
-    };
-  }
 }
 
 message CreateFileRequest {
@@ -227,6 +233,15 @@ message CreateFileRequest {
   optional string name = 3 [(buf.validate.field).string = {
     max_len: 255
     pattern: "^[^/\\x00-\\x1F\\x7F]*$"
+  }];
+  // Who can open the file by its URL; defaults to "internal". Over REST, pass
+  // it as the visibility query parameter.
+  optional string visibility = 4 [(buf.validate.field).string = {
+    in: [
+      "private",
+      "internal",
+      "public"
+    ]
   }];
 }
 
@@ -287,6 +302,14 @@ message UpdateFileRequest {
     max_len: 255
     pattern: "^[^/\\x00-\\x1F\\x7F]*$"
   }];
+  // Who can open the file by its URL.
+  optional string visibility = 4 [(buf.validate.field).string = {
+    in: [
+      "private",
+      "internal",
+      "public"
+    ]
+  }];
 }
 
 message UpdateFileResponse {
@@ -313,21 +336,3 @@ message DeleteFileRequest {
 }
 
 message DeleteFileResponse {}
-
-message PublishFileRequest {
-  string id = 1 [(buf.validate.field) = {
-    required: true
-    string: {pattern: "^[A-Za-z0-9_-]{21}$"}
-  }];
-}
-
-message PublishFileResponse {}
-
-message UnpublishFileRequest {
-  string id = 1 [(buf.validate.field) = {
-    required: true
-    string: {pattern: "^[A-Za-z0-9_-]{21}$"}
-  }];
-}
-
-message UnpublishFileResponse {}
