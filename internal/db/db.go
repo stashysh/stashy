@@ -41,6 +41,7 @@ type File struct {
 	Name        string // original filename; empty when not set
 	ContentType string
 	Size        int64
+	Checksum    string // CRC32C of the content (see storage.EncodeCRC32C); empty when unknown
 	Visibility  string // one of the Visibility* constants
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
@@ -232,11 +233,11 @@ func (d *DB) DeleteAPIKey(ctx context.Context, keyID, userID string) error {
 	return nil
 }
 
-const fileColumns = `id, owner_id, slug, name, content_type, size, visibility, created_at, updated_at`
+const fileColumns = `id, owner_id, slug, name, content_type, size, checksum, visibility, created_at, updated_at`
 
 func scanFile(row interface{ Scan(...any) error }) (*File, error) {
 	var f File
-	err := row.Scan(&f.ID, &f.Owner, &f.Slug, &f.Name, &f.ContentType, &f.Size, &f.Visibility, &f.CreatedAt, &f.UpdatedAt)
+	err := row.Scan(&f.ID, &f.Owner, &f.Slug, &f.Name, &f.ContentType, &f.Size, &f.Checksum, &f.Visibility, &f.CreatedAt, &f.UpdatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -255,9 +256,9 @@ func (d *DB) CreateFile(ctx context.Context, f File) (*File, error) {
 	now := time.Now().UTC()
 	f.CreatedAt, f.UpdatedAt = now, now
 	query := d.q(`INSERT INTO files (` + fileColumns + `)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if _, err := d.sql.ExecContext(ctx, query,
-		f.ID, f.Owner, f.Slug, f.Name, f.ContentType, f.Size, f.Visibility, f.CreatedAt, f.UpdatedAt); err != nil {
+		f.ID, f.Owner, f.Slug, f.Name, f.ContentType, f.Size, f.Checksum, f.Visibility, f.CreatedAt, f.UpdatedAt); err != nil {
 		return nil, fmt.Errorf("inserting file: %w", err)
 	}
 	return &f, nil
@@ -325,12 +326,12 @@ func (d *DB) CheckFileOwner(ctx context.Context, id, owner string) error {
 }
 
 // UpdateFileContent records new content metadata after a file's bytes are replaced.
-func (d *DB) UpdateFileContent(ctx context.Context, id, owner, contentType string, size int64) error {
+func (d *DB) UpdateFileContent(ctx context.Context, id, owner, contentType string, size int64, checksum string) error {
 	if err := d.CheckFileOwner(ctx, id, owner); err != nil {
 		return err
 	}
-	query := d.q(`UPDATE files SET content_type = ?, size = ?, updated_at = ? WHERE id = ?`)
-	if _, err := d.sql.ExecContext(ctx, query, contentType, size, time.Now().UTC(), id); err != nil {
+	query := d.q(`UPDATE files SET content_type = ?, size = ?, checksum = ?, updated_at = ? WHERE id = ?`)
+	if _, err := d.sql.ExecContext(ctx, query, contentType, size, checksum, time.Now().UTC(), id); err != nil {
 		return fmt.Errorf("updating file: %w", err)
 	}
 	return nil

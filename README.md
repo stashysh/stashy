@@ -137,13 +137,17 @@ Creating and updating a file return its metadata:
   "name": "photo.png",
   "content_type": "image/png",
   "size": "48213",
+  "checksum": "mnG7TA==",
   "visibility": "internal",
   "created_at": "2026-10-02T12:00:00Z",
   "updated_at": "2026-10-02T12:00:00Z"
 }
 ```
 
-`size` is a string, as protobuf JSON encodes 64-bit integers.
+`size` is a string, as protobuf JSON encodes 64-bit integers. `checksum` is the
+CRC32C (Castagnoli) of the content: the 4-byte big-endian value, base64-encoded,
+as GCS and S3 report it. It's empty for files uploaded before checksums were
+recorded.
 
 ### List files
 
@@ -171,7 +175,9 @@ curl -H "Authorization: Bearer <api-key>" \
   -o photo.png http://localhost:8080/v1/files/{id}/content
 ```
 
-Returns the file's bytes. Supports `Range` requests.
+Returns the file's bytes. Supports `Range` requests. The `ETag` header is the
+quoted checksum; send it back as `If-None-Match` to get `304 Not Modified` when
+the content hasn't changed.
 
 ### Update a file
 
@@ -195,7 +201,10 @@ curl -H "Authorization: Bearer <api-key>" \
   --data-binary @photo-v2.png
 ```
 
-Replaces the whole content; the file's ID and URL stay the same.
+Replaces the whole content; the file's ID and URL stay the same. To avoid
+overwriting someone else's change, send the `ETag` you last saw as `If-Match`:
+the update fails with `412 Precondition Failed` if the content has changed
+since.
 
 ### Delete a file
 

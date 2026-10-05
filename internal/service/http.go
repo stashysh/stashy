@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -36,6 +37,13 @@ func (s *FileService) ServeFile(w http.ResponseWriter, r *http.Request, id strin
 	// Set once for every path below: full GET, HEAD, and range responses.
 	w.Header().Set("Content-Type", f.ContentType)
 	w.Header().Set("Accept-Ranges", "bytes")
+	if f.Checksum != "" {
+		w.Header().Set("ETag", etag(f.Checksum))
+		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && etagMatchesIfNoneMatch(r.Header.Get("If-None-Match"), f.Checksum) {
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+	}
 	if f.Name != "" {
 		// inline keeps browsers displaying the file; the filename is used
 		// when it is saved. FormatMediaType encodes non-ASCII names per RFC 2231.
@@ -240,8 +248,12 @@ func (s *FileService) HTTPUpdateFileContent(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	f, err := s.replaceFile(r.Context(), id, owner, ct, r.Body)
+	f, err := s.replaceFile(r.Context(), id, owner, ct, r.Header.Get("If-Match"), r.Body)
 	if err != nil {
+		if errors.Is(err, errPreconditionFailed) {
+			http.Error(w, err.Error(), http.StatusPreconditionFailed)
+			return
+		}
 		if strings.Contains(err.Error(), "not found") {
 			http.NotFound(w, r)
 			return
@@ -271,6 +283,39 @@ func (s *FileService) writeFileJSON(w http.ResponseWriter, f *db.File) {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}
+	if f.Checksum != "" {
+		w.Header().Set("ETag", etag(f.Checksum))
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(b)
+}
+
+// etag is the strong HTTP entity tag for a file's content checksum.
+func etag(checksum string) string {
+	return `"` + checksum + `"`
+}
+
+// etagMatchesIfMatch reports whether an If-Match header matches the current
+// content. If-Match uses strong comparison: weak tags never match, and a file
+// without a checksum matches only "*".
+func etagMatchesIfMatch(header, checksum string) bool {
+	for _, tag := range strings.Split(header, ",") {
+		tag = strings.TrimSpace(tag)
+		if tag == "*" || (checksum != "" && tag == etag(checksum)) {
+			return true
+		}
+	}
+	return false
+}
+
+// etagMatchesIfNoneMatch reports whether an If-None-Match header matches the
+// current content, using weak comparison.
+func etagMatchesIfNoneMatch(header, checksum string) bool {
+	for _, tag := range strings.Split(header, ",") {
+		tag = strings.TrimPrefix(strings.TrimSpace(tag), "W/")
+		if tag == "*" || tag == etag(checksum) {
+			return true
+		}
+	}
+	return false
 }

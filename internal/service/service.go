@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -45,8 +46,13 @@ func validateContentType(ct string) (string, error) {
 }
 
 // fileError maps a db/storage-layer error to the appropriate connect code.
+// errPreconditionFailed reports that an If-Match condition didn't hold.
+var errPreconditionFailed = errors.New("precondition failed: the file's content has changed")
+
 func fileError(err error) error {
 	switch {
+	case errors.Is(err, errPreconditionFailed):
+		return connect.NewError(connect.CodeFailedPrecondition, err)
 	case strings.Contains(err.Error(), "not found"):
 		return connect.NewError(connect.CodeNotFound, err)
 	case strings.Contains(err.Error(), "permission denied"):
@@ -73,6 +79,7 @@ func (s *FileService) fileProto(f *db.File) *stashyv1.File {
 		Url:         s.canonicalURL(f),
 		ContentType: f.ContentType,
 		Size:        f.Size,
+		Checksum:    f.Checksum,
 		Visibility:  f.Visibility,
 		Slug:        f.Slug,
 		CreatedAt:   timestamppb.New(f.CreatedAt),
@@ -91,12 +98,12 @@ func (s *FileService) putFile(ctx context.Context, meta db.File, r io.Reader) (*
 		return nil, fmt.Errorf("generating id: %w", err)
 	}
 
-	size, err := s.store.Put(ctx, id, meta.ContentType, r)
+	stored, err := s.store.Put(ctx, id, meta.ContentType, r)
 	if err != nil {
 		return nil, err
 	}
 
-	meta.ID, meta.Size = id, size
+	meta.ID, meta.Size, meta.Checksum = id, stored.Size, stored.Checksum
 	f, err := s.db.CreateFile(ctx, meta)
 	if err != nil {
 		if derr := s.store.Delete(ctx, id); derr != nil {
@@ -109,16 +116,23 @@ func (s *FileService) putFile(ctx context.Context, meta db.File, r io.Reader) (*
 
 // replaceFile overwrites an existing file's bytes and content metadata after
 // verifying ownership, and returns the updated metadata row.
-func (s *FileService) replaceFile(ctx context.Context, id, owner, contentType string, r io.Reader) (*db.File, error) {
-	if err := s.db.CheckFileOwner(ctx, id, owner); err != nil {
-		return nil, err
-	}
-
-	size, err := s.store.Put(ctx, id, contentType, r)
+// A non-empty ifMatch is an HTTP If-Match header: the content is replaced
+// only if it matches the current ETag, else errPreconditionFailed is returned
+// before anything is written.
+func (s *FileService) replaceFile(ctx context.Context, id, owner, contentType, ifMatch string, r io.Reader) (*db.File, error) {
+	f, err := s.ownedFile(ctx, id, owner)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.db.UpdateFileContent(ctx, id, owner, contentType, size); err != nil {
+	if ifMatch != "" && !etagMatchesIfMatch(ifMatch, f.Checksum) {
+		return nil, errPreconditionFailed
+	}
+
+	stored, err := s.store.Put(ctx, id, contentType, r)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.db.UpdateFileContent(ctx, id, owner, contentType, stored.Size, stored.Checksum); err != nil {
 		return nil, err
 	}
 	return s.db.GetFile(ctx, id)
@@ -249,7 +263,7 @@ func (s *FileService) UpdateFileContent(
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		updated, updateErr = s.replaceFile(ctx, id, owner, contentType, pr)
+		updated, updateErr = s.replaceFile(ctx, id, owner, contentType, "", pr)
 		// Drain the pipe on early failure (e.g. ownership check) so the
 		// writer side doesn't block forever.
 		if updateErr != nil {

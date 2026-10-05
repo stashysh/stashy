@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/stashysh/stashy/internal/storage"
 )
 
 // Storage stores file bytes on the local filesystem, one file per id.
@@ -24,19 +26,20 @@ func (s *Storage) dataPath(id string) string {
 	return filepath.Join(s.dir, id+".data")
 }
 
-func (s *Storage) Put(_ context.Context, id, _ string, r io.Reader) (int64, error) {
+func (s *Storage) Put(_ context.Context, id, _ string, r io.Reader) (storage.Stored, error) {
 	f, err := os.Create(s.dataPath(id))
 	if err != nil {
-		return 0, fmt.Errorf("creating file: %w", err)
+		return storage.Stored{}, fmt.Errorf("creating file: %w", err)
 	}
 	defer f.Close()
 
-	n, err := io.Copy(f, r)
+	h := storage.NewCRC32C()
+	n, err := io.Copy(io.MultiWriter(f, h), r)
 	if err != nil {
 		os.Remove(s.dataPath(id))
-		return 0, fmt.Errorf("writing file: %w", err)
+		return storage.Stored{}, fmt.Errorf("writing file: %w", err)
 	}
-	return n, nil
+	return storage.Stored{Size: n, Checksum: storage.EncodeCRC32C(h.Sum32())}, nil
 }
 
 func (s *Storage) Get(_ context.Context, id string) (io.ReadCloser, error) {
