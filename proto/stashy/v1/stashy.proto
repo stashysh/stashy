@@ -39,12 +39,15 @@ message File {
   string checksum = 7 [(buf.validate.field).string.pattern = "^([A-Za-z0-9+/]{6}==)?$"];
   // Who can open the file by its URL: "private" (only the owner), "internal"
   // (any signed-in user), or "public" (anyone).
-  string visibility = 8 [(buf.validate.field).string = {
-    in: [
-      "private",
-      "internal",
-      "public"
-    ]
+  string visibility = 8 [(buf.validate.field) = {
+    required: true
+    string: {
+      in: [
+        "private",
+        "internal",
+        "public"
+      ]
+    }
   }];
   google.protobuf.Timestamp created_at = 9 [(buf.validate.field).required = true];
   google.protobuf.Timestamp updated_at = 10 [(buf.validate.field).required = true];
