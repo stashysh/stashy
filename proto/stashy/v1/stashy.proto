@@ -5,6 +5,7 @@ package stashy.v1;
 import "buf/validate/validate.proto";
 import "gnostic/openapi/v3/annotations.proto";
 import "google/api/annotations.proto";
+import "google/api/field_behavior.proto";
 import "google/api/httpbody.proto";
 import "google/protobuf/timestamp.proto";
 
@@ -12,45 +13,75 @@ option go_package = "github.com/stashysh/stashy/gen/stashy/v1;stashyv1";
 
 message File {
   // Unique file ID.
-  string id = 1 [(buf.validate.field) = {
-    required: true
-    string: {pattern: "^[A-Za-z0-9_-]{21}$"}
-  }];
+  string id = 1 [
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field) = {
+      required: true
+      string: {pattern: "^[A-Za-z0-9_-]{21}$"}
+    }
+  ];
   // Human-readable name at the end of the URL. Empty when not set.
-  string slug = 2 [(buf.validate.field).string = {
-    pattern: "^[A-Za-z0-9._~-]*$"
-    max_len: 128
-  }];
+  string slug = 2 [
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field).string = {
+      pattern: "^[A-Za-z0-9._~-]*$"
+      max_len: 128
+    }
+  ];
   // Canonical URL of the file, including the slug when set.
-  string url = 3 [(buf.validate.field) = {
-    required: true
-    string: {uri: true}
-  }];
+  string url = 3 [
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field) = {
+      required: true
+      string: {uri: true}
+    }
+  ];
   // Original filename, e.g. "Quarterly report.pdf". Empty when not set.
-  string name = 4 [(buf.validate.field).string = {
-    max_len: 255
-    pattern: "^[^/\\x00-\\x1F\\x7F]*$"
-  }];
+  string name = 4 [
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field).string = {
+      max_len: 255
+      pattern: "^[^/\\x00-\\x1F\\x7F]*$"
+    }
+  ];
   // Media type of the content, from the Content-Type of the upload.
-  string content_type = 5 [(buf.validate.field).required = true];
+  string content_type = 5 [
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field).required = true
+  ];
   // Size of the content in bytes.
-  int64 size = 6 [(buf.validate.field).int64.gte = 0];
+  int64 size = 6 [
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field).int64.gte = 0
+  ];
   // CRC32C checksum of the content.
-  string checksum = 7 [(buf.validate.field).string.pattern = "^([A-Za-z0-9+/]{6}==)?$"];
+  string checksum = 7 [
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field).string.pattern = "^([A-Za-z0-9+/]{6}==)?$"
+  ];
   // Who can open the file by its URL: "private" (only the owner), "internal"
   // (any signed-in user), or "public" (anyone).
-  string visibility = 8 [(buf.validate.field) = {
-    required: true
-    string: {
-      in: [
-        "private",
-        "internal",
-        "public"
-      ]
+  string visibility = 8 [
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field) = {
+      required: true
+      string: {
+        in: [
+          "private",
+          "internal",
+          "public"
+        ]
+      }
     }
-  }];
-  google.protobuf.Timestamp created_at = 9 [(buf.validate.field).required = true];
-  google.protobuf.Timestamp updated_at = 10 [(buf.validate.field).required = true];
+  ];
+  google.protobuf.Timestamp created_at = 9 [
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field).required = true
+  ];
+  google.protobuf.Timestamp updated_at = 10 [
+    (google.api.field_behavior) = REQUIRED,
+    (buf.validate.field).required = true
+  ];
 }
 
 service FileService {
