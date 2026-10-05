@@ -119,18 +119,20 @@ func TestMCPTools(t *testing.T) {
 		t.Fatalf("ListTools: %v", err)
 	}
 	annotations := map[string]*mcp.ToolAnnotations{}
-	var updateSchema []byte
+	schemas := map[string]string{}
 	for _, tool := range tools.Tools {
 		annotations[tool.Name] = tool.Annotations
-		if tool.Name == "update_file" {
-			updateSchema, _ = json.Marshal(tool.InputSchema)
-		}
+		b, _ := json.Marshal(tool.InputSchema)
+		schemas[tool.Name] = string(b)
 	}
 	if len(annotations) != 4 {
 		t.Errorf("got %d tools, want 4", len(annotations))
 	}
-	if !strings.Contains(string(updateSchema), `"enum":["private","internal","public"]`) {
-		t.Errorf("update_file schema should list the visibility values: %s", updateSchema)
+	if !strings.Contains(schemas["update_file"], `"enum":["private","internal","public"],"type":"string"`) {
+		t.Errorf("update_file schema should list the visibility values: %s", schemas["update_file"])
+	}
+	if !strings.Contains(schemas["list_files"], `"maximum":100,"minimum":1`) {
+		t.Errorf("list_files schema should bound limit to 1-100: %s", schemas["list_files"])
 	}
 	for _, name := range []string{"list_files", "get_file", "update_file", "delete_file"} {
 		if annotations[name] == nil {
@@ -162,8 +164,10 @@ func TestMCPTools(t *testing.T) {
 	if f := toolFile(t, alice, "update_file", map[string]any{"id": created.ID, "visibility": "public"}); f.Visibility != "public" {
 		t.Fatalf("visibility = %q after update_file, want public", f.Visibility)
 	}
-	if res := callTool(t, alice, "update_file", map[string]any{"id": created.ID, "visibility": "everyone"}); !res.IsError {
-		t.Fatalf("update_file with an unknown visibility: want a tool error")
+	for _, visibility := range []any{"everyone", nil} {
+		if res := callTool(t, alice, "update_file", map[string]any{"id": created.ID, "visibility": visibility}); !res.IsError {
+			t.Fatalf("update_file with visibility %v: want a tool error", visibility)
+		}
 	}
 
 	res := callTool(t, alice, "list_files", map[string]any{"limit": 10})
@@ -191,7 +195,7 @@ func TestMCPToolsValidateInput(t *testing.T) {
 
 	for name, args := range map[string]map[string]any{
 		"get_file":    {"id": "short"},
-		"list_files":  {"limit": 0},
+		"list_files":  {"limit": 101},
 		"update_file": {"id": "AAAAAAAAAAAAAAAAAAAAA", "slug": "has spaces"},
 	} {
 		if res := callTool(t, alice, name, args); !res.IsError {
