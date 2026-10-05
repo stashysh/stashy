@@ -10,7 +10,6 @@ import (
 	"os"
 	"strings"
 
-	gcstorage "cloud.google.com/go/storage"
 	"connectrpc.com/connect"
 	"connectrpc.com/validate"
 	"connectrpc.com/vanguard"
@@ -18,6 +17,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
+	"google.golang.org/api/option"
+	gstorage "google.golang.org/api/storage/v1"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/joho/godotenv"
@@ -55,11 +56,20 @@ func envRequired(key string) string {
 func newStorage() (storage.Storage, error) {
 	switch os.Getenv("STORAGE_BACKEND") {
 	case "gcs":
-		client, err := gcstorage.NewClient(context.Background())
+		var opts []option.ClientOption
+		// Honor the emulator variable cloud.google.com/go/storage supports,
+		// e.g. for fake-gcs-server.
+		if host := os.Getenv("STORAGE_EMULATOR_HOST"); host != "" {
+			if !strings.Contains(host, "://") {
+				host = "http://" + host
+			}
+			opts = append(opts, option.WithEndpoint(host+"/storage/v1/"), option.WithoutAuthentication())
+		}
+		service, err := gstorage.NewService(context.Background(), opts...)
 		if err != nil {
 			return nil, err
 		}
-		return gcs.New(client, envRequired("GCS_BUCKET")), nil
+		return gcs.New(service, envRequired("GCS_BUCKET")), nil
 	case "s3":
 		cfg, err := config.LoadDefaultConfig(context.Background())
 		if err != nil {
