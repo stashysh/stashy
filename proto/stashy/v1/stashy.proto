@@ -35,17 +35,19 @@ message File {
   string content_type = 5 [(buf.validate.field).required = true];
   // Size of the content in bytes.
   int64 size = 6 [(buf.validate.field).int64.gte = 0];
+  // CRC32C checksum of the content.
+  string checksum = 7 [(buf.validate.field).string.pattern = "^([A-Za-z0-9+/]{6}==)?$"];
   // Who can open the file by its URL: "private" (only the owner), "internal"
   // (any signed-in user), or "public" (anyone).
-  string visibility = 7 [(buf.validate.field).string = {
+  string visibility = 8 [(buf.validate.field).string = {
     in: [
       "private",
       "internal",
       "public"
     ]
   }];
-  google.protobuf.Timestamp created_at = 8 [(buf.validate.field).required = true];
-  google.protobuf.Timestamp updated_at = 9 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp created_at = 9 [(buf.validate.field).required = true];
+  google.protobuf.Timestamp updated_at = 10 [(buf.validate.field).required = true];
 }
 
 service FileService {

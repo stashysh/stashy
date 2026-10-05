@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"sync"
+
+	"github.com/stashysh/stashy/internal/storage"
 )
 
 // Storage is an in-memory byte store. Useful for development and testing.
@@ -18,17 +20,19 @@ func New() *Storage {
 	return &Storage{files: make(map[string][]byte)}
 }
 
-func (s *Storage) Put(_ context.Context, id, _ string, r io.Reader) (int64, error) {
+func (s *Storage) Put(_ context.Context, id, _ string, r io.Reader) (storage.Stored, error) {
 	data, err := io.ReadAll(r)
 	if err != nil {
-		return 0, fmt.Errorf("reading file data: %w", err)
+		return storage.Stored{}, fmt.Errorf("reading file data: %w", err)
 	}
 
 	s.mu.Lock()
 	s.files[id] = data
 	s.mu.Unlock()
 
-	return int64(len(data)), nil
+	h := storage.NewCRC32C()
+	h.Write(data)
+	return storage.Stored{Size: int64(len(data)), Checksum: storage.EncodeCRC32C(h.Sum32())}, nil
 }
 
 func (s *Storage) Get(_ context.Context, id string) (io.ReadCloser, error) {

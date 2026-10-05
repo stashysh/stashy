@@ -52,6 +52,7 @@ type mcpFile struct {
 	Name        string    `json:"name" jsonschema:"original filename; empty when not set"`
 	ContentType string    `json:"content_type"`
 	Size        int64     `json:"size" jsonschema:"size in bytes"`
+	Checksum    string    `json:"checksum" jsonschema:"CRC32C of the content, base64; empty when unknown"`
 	Visibility  string    `json:"visibility" jsonschema:"who can open the URL: private (only the owner), internal (any signed-in user), or public (anyone)"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
@@ -65,6 +66,7 @@ func toMCPFile(f *stashyv1.File) mcpFile {
 		Name:        f.Name,
 		ContentType: f.ContentType,
 		Size:        f.Size,
+		Checksum:    f.Checksum,
 		Visibility:  f.Visibility,
 		CreatedAt:   f.CreatedAt.AsTime(),
 		UpdatedAt:   f.UpdatedAt.AsTime(),

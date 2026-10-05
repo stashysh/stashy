@@ -7,6 +7,8 @@ import (
 	"io"
 
 	gcstorage "cloud.google.com/go/storage"
+
+	"github.com/stashysh/stashy/internal/storage"
 )
 
 // Storage stores file bytes in Google Cloud Storage.
@@ -18,20 +20,21 @@ func New(client *gcstorage.Client, bucketName string) *Storage {
 	return &Storage{bucket: client.Bucket(bucketName)}
 }
 
-func (s *Storage) Put(ctx context.Context, id, contentType string, r io.Reader) (int64, error) {
+func (s *Storage) Put(ctx context.Context, id, contentType string, r io.Reader) (storage.Stored, error) {
 	w := s.bucket.Object(id).NewWriter(ctx)
 	w.ContentType = contentType
 
 	n, err := io.Copy(w, r)
 	if err != nil {
 		w.Close()
-		return 0, fmt.Errorf("writing to GCS: %w", err)
+		return storage.Stored{}, fmt.Errorf("writing to GCS: %w", err)
 	}
 
 	if err := w.Close(); err != nil {
-		return 0, fmt.Errorf("closing GCS writer: %w", err)
+		return storage.Stored{}, fmt.Errorf("closing GCS writer: %w", err)
 	}
-	return n, nil
+	// GCS computes a CRC32C for every object.
+	return storage.Stored{Size: n, Checksum: storage.EncodeCRC32C(w.Attrs().CRC32C)}, nil
 }
 
 func (s *Storage) Get(ctx context.Context, id string) (io.ReadCloser, error) {

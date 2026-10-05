@@ -9,6 +9,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+
+	"github.com/stashysh/stashy/internal/storage"
 )
 
 // Storage stores file bytes in Amazon S3 or S3-compatible storage.
@@ -21,20 +23,27 @@ func New(client *s3.Client, bucket string) *Storage {
 	return &Storage{client: client, bucket: bucket}
 }
 
-func (s *Storage) Put(ctx context.Context, id, contentType string, r io.Reader) (int64, error) {
+func (s *Storage) Put(ctx context.Context, id, contentType string, r io.Reader) (storage.Stored, error) {
 	cr := &countingReader{r: r}
 	input := &s3.PutObjectInput{
-		Bucket: &s.bucket,
-		Key:    &id,
-		Body:   cr,
+		Bucket:            &s.bucket,
+		Key:               &id,
+		Body:              cr,
+		ChecksumAlgorithm: types.ChecksumAlgorithmCrc32c,
 	}
 	if contentType != "" {
 		input.ContentType = &contentType
 	}
-	if _, err := s.client.PutObject(ctx, input); err != nil {
-		return 0, fmt.Errorf("putting object: %w", err)
+	out, err := s.client.PutObject(ctx, input)
+	if err != nil {
+		return storage.Stored{}, fmt.Errorf("putting object: %w", err)
 	}
-	return cr.n, nil
+	// Empty if S3 didn't return one; the checksum is optional.
+	var checksum string
+	if out.ChecksumCRC32C != nil {
+		checksum = *out.ChecksumCRC32C
+	}
+	return storage.Stored{Size: cr.n, Checksum: checksum}, nil
 }
 
 func (s *Storage) Get(ctx context.Context, id string) (io.ReadCloser, error) {
