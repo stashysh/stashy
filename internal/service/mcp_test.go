@@ -155,6 +155,11 @@ func TestMCPTools(t *testing.T) {
 	if got.Size != 7 || got.ContentType != "text/markdown" || got.Visibility != "internal" {
 		t.Fatalf("get_file = %+v", got)
 	}
+	// The text lists fields in struct order, not sorted the way the SDK would
+	// after validating the output.
+	if text := toolText(callTool(t, alice, "get_file", map[string]any{"id": created.ID})); !strings.HasPrefix(text, `{"id":"`+created.ID+`","slug":`) {
+		t.Errorf("get_file text = %s, want fields in struct order", text)
+	}
 
 	updated := toolFile(t, alice, "update_file", map[string]any{"id": created.ID, "slug": "notes.md", "name": "Notes.md"})
 	if updated.URL != "http://example.test/"+created.ID+"/notes.md" || updated.Name != "Notes.md" {
@@ -171,8 +176,8 @@ func TestMCPTools(t *testing.T) {
 	}
 
 	res := callTool(t, alice, "list_files", map[string]any{"limit": 10})
-	if res.IsError || !strings.Contains(toolText(res), created.ID) {
-		t.Fatalf("list_files missing the file: %s", toolText(res))
+	if res.IsError || !strings.HasPrefix(toolText(res), `{"files":[{"id":"`+created.ID+`","slug":`) {
+		t.Fatalf("list_files text = %s, want the file with fields in struct order", toolText(res))
 	}
 
 	// Another user can't see or change the file.
