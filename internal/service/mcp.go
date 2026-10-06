@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -141,7 +142,7 @@ func (s *FileService) addMCPTools(server *mcp.Server) {
 		for _, f := range resp.Files {
 			out.Files = append(out.Files, toMCPFile(f))
 		}
-		return nil, out, nil
+		return textResult(out), out, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -153,7 +154,8 @@ func (s *FileService) addMCPTools(server *mcp.Server) {
 		if err != nil {
 			return nil, mcpFile{}, err
 		}
-		return nil, toMCPFile(resp.File), nil
+		f := toMCPFile(resp.File)
+		return textResult(f), f, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -168,7 +170,8 @@ func (s *FileService) addMCPTools(server *mcp.Server) {
 		if err != nil {
 			return nil, mcpFile{}, err
 		}
-		return nil, toMCPFile(resp.File), nil
+		f := toMCPFile(resp.File)
+		return textResult(f), f, nil
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -179,6 +182,17 @@ func (s *FileService) addMCPTools(server *mcp.Server) {
 		_, err := callUnary(ctx, req, s.DeleteFile, &stashyv1.DeleteFileRequest{Id: in.ID})
 		return nil, mcpEmpty{}, err
 	})
+}
+
+// textResult returns out as the result's text, keeping struct field order.
+// Otherwise the SDK fills the text after validating the output against its
+// schema, which goes through a map and sorts the keys.
+func textResult(out any) *mcp.CallToolResult {
+	b, err := json.Marshal(out)
+	if err != nil {
+		return nil // the SDK marshals out too and reports the error
+	}
+	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(b)}}}
 }
 
 // callUnary validates msg the way the Connect interceptor does, then calls a

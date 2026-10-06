@@ -1,6 +1,25 @@
 # Stashy
 
-Self-hosted file storage service with multi-protocol API.
+[![CI](https://github.com/stashysh/stashy/actions/workflows/main.yaml/badge.svg)](https://github.com/stashysh/stashy/actions/workflows/main.yaml)
+[![Release](https://img.shields.io/github/v/release/stashysh/stashy)](https://github.com/stashysh/stashy/releases)
+[![License](https://img.shields.io/github/license/stashysh/stashy)](LICENSE)
+[![Go](https://img.shields.io/github/go-mod/go-version/stashysh/stashy)](go.mod)
+
+Self-hosted file storage built for AI agents. Connect your agent over
+[MCP](#mcp) or give it an API key — it uploads, manages, and shares files,
+and you stay in control.
+
+- **Agent-native** — built-in MCP server, plus REST, gRPC, gRPC-Web, and Connect on one endpoint
+- **Any storage backend** — local disk, Amazon S3, Cloudflare R2, MinIO, or Google Cloud Storage
+- **Private, team, or public** — choose who sees each file, with clean shareable URLs
+
+## Install
+
+```bash
+brew install stashysh/tap/stashy
+```
+
+Or download a binary from [Releases](https://github.com/stashysh/stashy/releases).
 
 ## Quick start
 
