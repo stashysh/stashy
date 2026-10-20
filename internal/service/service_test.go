@@ -230,7 +230,7 @@ func TestConnectGetForReads(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	client := stashyv1connect.NewFileServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL, connecthttp.WithReadMaxBytes(0), connecthttp.WithHTTPGet(), connecthttp.WithProtoJSON())))
+	client := stashyv1connect.NewFileServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL, connecthttp.WithHTTPGet(), connecthttp.WithProtoJSON())))
 	resp, err := client.ListFiles(t.Context(), &stashyv1.ListFilesRequest{})
 	if err != nil {
 		t.Fatalf("ListFiles: %v", err)
