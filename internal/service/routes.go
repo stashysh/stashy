@@ -49,9 +49,10 @@ func (s *FileService) mount(mux *http.ServeMux, authenticate func(http.Handler) 
 	server := connect.NewServer(validate.NewServerInterceptor())
 	stashyv1connect.RegisterFileServiceHandler(server, s)
 
-	// Uploads can arrive as one large message, so keep v1's unbounded
-	// per-message limit.
-	connecthttp.Mount(wrappingMux{mux, authenticate}, server, connecthttp.WithReadMaxBytes(0))
+	// The default 4 MiB limit applies to each message, not to a whole
+	// stream, so chunked uploads of any size still work, and a single huge
+	// message isn't buffered in memory.
+	connecthttp.Mount(wrappingMux{mux, authenticate}, server)
 
 	// Vanguard installs a catch-all "/", so it gets its own mux under /v1/.
 	rest := http.NewServeMux()
