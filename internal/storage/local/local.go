@@ -46,7 +46,7 @@ func (s *Storage) Get(_ context.Context, id string) (io.ReadCloser, error) {
 	f, err := os.Open(s.dataPath(id))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("file not found: %s", id)
+			return nil, fmt.Errorf("%w: %s", storage.ErrNotFound, id)
 		}
 		return nil, fmt.Errorf("opening file: %w", err)
 	}
@@ -57,7 +57,7 @@ func (s *Storage) GetRange(_ context.Context, id string, start, _ int64) (io.Rea
 	f, err := os.Open(s.dataPath(id))
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("file not found: %s", id)
+			return nil, fmt.Errorf("%w: %s", storage.ErrNotFound, id)
 		}
 		return nil, fmt.Errorf("opening file: %w", err)
 	}

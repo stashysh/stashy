@@ -6,9 +6,9 @@ require (
 	buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go v1.36.12-20260825204119-511051f7f437.2
 	buf.build/go/protovalidate v1.4.0
 	cloud.google.com/go/storage v1.69.0
-	connectrpc.com/connect v1.21.0
-	connectrpc.com/validate v0.7.0
-	connectrpc.com/vanguard v0.4.0
+	connectrpc.com/connect/v2 v2.0.1
+	connectrpc.com/validate v0.9.0
+	connectrpc.com/vanguard v0.5.0
 	github.com/aws/aws-sdk-go-v2/config v1.33.6
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.0
 	github.com/google/gnostic v0.7.1
@@ -34,6 +34,7 @@ require (
 	cloud.google.com/go/compute/metadata v0.10.0 // indirect
 	cloud.google.com/go/iam v1.12.0 // indirect
 	cloud.google.com/go/monitoring v1.30.0 // indirect
+	connectrpc.com/connect v1.21.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.35.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.57.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.57.0 // indirect

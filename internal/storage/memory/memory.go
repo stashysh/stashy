@@ -41,7 +41,7 @@ func (s *Storage) Get(_ context.Context, id string) (io.ReadCloser, error) {
 	s.mu.RUnlock()
 
 	if !ok {
-		return nil, fmt.Errorf("file not found: %s", id)
+		return nil, fmt.Errorf("%w: %s", storage.ErrNotFound, id)
 	}
 
 	return io.NopCloser(bytes.NewReader(data)), nil
@@ -53,7 +53,7 @@ func (s *Storage) GetRange(_ context.Context, id string, start, length int64) (i
 	s.mu.RUnlock()
 
 	if !ok {
-		return nil, fmt.Errorf("file not found: %s", id)
+		return nil, fmt.Errorf("%w: %s", storage.ErrNotFound, id)
 	}
 
 	end := start + length

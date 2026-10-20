@@ -116,7 +116,7 @@ Set `ALLOWED_DOMAINS` to restrict login to specific email domains.
 
 ## Protocols
 
-A single endpoint serves all protocols via [vanguard-go](https://github.com/connectrpc/vanguard-go) transcoding:
+A single endpoint serves all protocols: gRPC, gRPC-Web, and Connect via [connect-go](https://github.com/connectrpc/connect-go), and REST via [vanguard-go](https://github.com/connectrpc/vanguard-go):
 
 | Protocol | Transport |
 |---|---|

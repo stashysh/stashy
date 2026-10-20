@@ -6,14 +6,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 
 	gcstorage "cloud.google.com/go/storage"
-	"connectrpc.com/connect"
-	"connectrpc.com/validate"
-	"connectrpc.com/vanguard"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"golang.org/x/net/http2"
@@ -23,7 +19,6 @@ import (
 	"github.com/joho/godotenv"
 	_ "modernc.org/sqlite"
 
-	"github.com/stashysh/stashy/gen/stashy/v1/stashyv1connect"
 	"github.com/stashysh/stashy/internal/auth"
 	"github.com/stashysh/stashy/internal/db"
 	"github.com/stashysh/stashy/internal/service"
@@ -86,95 +81,6 @@ func driverFromDSN(dsn string) string {
 func openDB() (*db.DB, error) {
 	dsn := env("DATABASE_URL", env("DB_DSN", "file:stashy.db"))
 	return db.New(context.Background(), driverFromDSN(dsn), dsn)
-}
-
-// fileHandler serves the public file namespace at the root: /{id} or
-// /{id}/{slug}. It is registered as the catch-all so it doesn't conflict with
-// the /v1/ API subtree, so it parses the path itself.
-func fileHandler(database *db.DB, files *service.FileService, sessions *auth.SessionManager) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead {
-			http.NotFound(w, r)
-			return
-		}
-
-		id, urlSlug, ok := splitFilePath(r.URL.Path)
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-
-		f, err := database.GetFile(r.Context(), id)
-		if err != nil {
-			if strings.Contains(err.Error(), "not found") {
-				http.NotFound(w, r)
-				return
-			}
-			log.Printf("fileHandler: %v", err)
-			http.Error(w, "internal error", http.StatusInternalServerError)
-			return
-		}
-
-		// Anything but public needs a signed-in user, and anything but internal
-		// (i.e. private) needs the owner, so an unexpected value fails closed.
-		if f.Visibility != db.VisibilityPublic {
-			userID, ok := sessions.GetUserID(r)
-			if !ok {
-				if shouldRedirectToLogin(r) {
-					http.Redirect(w, r, "/auth/google/login?next="+url.QueryEscape(r.URL.RequestURI()), http.StatusTemporaryRedirect)
-					return
-				}
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
-				return
-			}
-			// 404 rather than 403, so a private file's existence isn't revealed.
-			if f.Visibility != db.VisibilityInternal && userID != f.Owner {
-				http.NotFound(w, r)
-				return
-			}
-		}
-
-		// Redirect any non-matching slug (a bare /{id}, a stale slug from before
-		// a rename, or a typo) to the current canonical URL, so links shared
-		// across renames keep working.
-		if urlSlug != f.Slug {
-			http.Redirect(w, r, canonicalPath(f), http.StatusFound)
-			return
-		}
-
-		files.ServeFile(w, r, id)
-	}
-}
-
-func shouldRedirectToLogin(r *http.Request) bool {
-	if r.Method != http.MethodGet {
-		return false
-	}
-	accept := r.Header.Get("Accept")
-	return accept == "" || strings.Contains(accept, "text/html")
-}
-
-// splitFilePath parses a root request path into a file id and optional slug.
-// It reports false for anything that isn't /{id} or /{id}/{slug}.
-func splitFilePath(p string) (id, slug string, ok bool) {
-	parts := strings.Split(strings.Trim(p, "/"), "/")
-	switch {
-	case len(parts) == 1 && parts[0] != "":
-		return parts[0], "", true
-	case len(parts) == 2 && parts[0] != "" && parts[1] != "":
-		return parts[0], parts[1], true
-	default:
-		return "", "", false
-	}
-}
-
-// canonicalPath is the canonical access path for a file: /{id}/{slug}, or
-// /{id} when it has no slug.
-func canonicalPath(f *db.File) string {
-	if f.Slug != "" {
-		return "/" + f.ID + "/" + f.Slug
-	}
-	return "/" + f.ID
 }
 
 var usage = "Usage: stashy " + Version + ` <command>
@@ -264,50 +170,18 @@ func cmdServe(migrate bool) {
 		allowedDomains,
 	)
 
-	apiKeys := auth.NewAPIKeyHandler(database, sessions)
-
 	svc := service.New(store, database, hostname)
-	path, handler := stashyv1connect.NewFileServiceHandler(svc, connect.WithInterceptors(validate.NewInterceptor()))
 
-	restOpts := vanguard.WithRESTUnmarshalOptions(vanguard.RESTUnmarshalOptions{
-		DiscardUnknownQueryParams: true,
-	})
-
-	transcoder, err := vanguard.NewTranscoder([]*vanguard.Service{
-		vanguard.NewService(path, handler, restOpts),
-	},
-		vanguard.WithCodec(func(res vanguard.TypeResolver) vanguard.Codec {
-			codec := vanguard.NewJSONCodec(res)
-			codec.MarshalOptions.UseProtoNames = true
-			codec.MarshalOptions.EmitUnpopulated = true
-			codec.UnmarshalOptions.DiscardUnknown = true
-			return codec
-		}),
-	)
-	if err != nil {
-		log.Fatalf("failed to create transcoder: %v", err)
-	}
-
-	apiAuth := auth.RequireAPIKey(database)
 	webUI := web.NewHandler(database, sessions, hostname, Version)
 
 	mux := http.NewServeMux()
 
 	oauth.RegisterRoutes(mux)
-	apiKeys.RegisterRoutes(mux)
+	webUI.RegisterRoutes(mux)
 
-	// Register direct handlers for the streaming content RPCs before Vanguard to
-	// bypass its full-body buffering of HttpBody RPCs (see
-	// github.com/stashysh/stashy/issues/23).
-	mux.Handle("POST /v1/files", apiAuth(http.HandlerFunc(svc.HTTPCreateFile)))
-	mux.Handle("GET /v1/files/{id}/content", apiAuth(http.HandlerFunc(svc.HTTPGetFileContent)))
-	mux.Handle("PUT /v1/files/{id}/content", apiAuth(http.HandlerFunc(svc.HTTPUpdateFileContent)))
-
-	mux.Handle("/v1/", apiAuth(transcoder))
-	// MCP authenticates with the same API keys, via the SDK's bearer-token
-	// middleware.
-	mux.Handle("/mcp", svc.MCPHandler(database, Version))
-	mux.Handle(path, apiAuth(transcoder))
+	if err := svc.Mount(mux, Version); err != nil {
+		log.Fatalf("failed to mount API: %v", err)
+	}
 
 	publicFS := http.FileServer(http.Dir("public"))
 	if spec, err := os.ReadFile("public/openapi.yaml"); err == nil {
@@ -328,9 +202,7 @@ func cmdServe(migrate bool) {
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	mux.HandleFunc("GET /{$}", webUI.FilesPage)
-	mux.HandleFunc("GET /keys", webUI.KeysPage)
-	mux.Handle("/", fileHandler(database, svc, sessions))
+	mux.Handle("/", svc.PublicFileHandler(sessions))
 
 	addr := ":" + port
 	log.Printf("listening on %s", addr)

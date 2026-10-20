@@ -28,7 +28,7 @@ func newMCPTest(t *testing.T) (*FileService, *mcp.ClientSession, *mcp.ClientSess
 
 	database := newTestDB(t)
 	svc := New(memory.New(), database, "http://example.test")
-	srv := httptest.NewServer(svc.MCPHandler(database, "test"))
+	srv := httptest.NewServer(svc.mcpHandler("test"))
 	t.Cleanup(srv.Close)
 
 	connect := func(googleID string) *mcp.ClientSession {
@@ -96,7 +96,7 @@ func toolText(res *mcp.CallToolResult) string {
 func TestMCPRequiresAPIKey(t *testing.T) {
 	database := newTestDB(t)
 	svc := New(memory.New(), database, "http://example.test")
-	h := svc.MCPHandler(database, "test")
+	h := svc.mcpHandler("test")
 
 	for _, header := range []string{"", "Bearer not-a-key"} {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(`{}`))
