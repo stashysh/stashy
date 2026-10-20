@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"connectrpc.com/connect/v2"
 	"connectrpc.com/connect/v2/connecthttp"
@@ -18,7 +19,25 @@ import (
 // under /stashy.v1.FileService/, REST under /v1/, and MCP at /mcp. Every
 // route authenticates with API keys. version is reported to MCP clients.
 func (s *FileService) Mount(mux *http.ServeMux, version string) error {
-	return s.mount(mux, auth.RequireAPIKey(s.db), version)
+	return s.mount(mux, s.requireAPIKey, version)
+}
+
+// requireAPIKey authenticates requests with a Bearer API key and puts the
+// key's user in the request context.
+func (s *FileService) requireAPIKey(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok || token == "" {
+			apiError(w, "missing authorization", http.StatusUnauthorized)
+			return
+		}
+		key, err := s.db.LookupAPIKey(r.Context(), token)
+		if err != nil {
+			apiError(w, "invalid api key", http.StatusUnauthorized)
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(auth.ContextWithUserID(r.Context(), key.UserID)))
+	})
 }
 
 // mount is Mount with the RPC and REST authentication supplied, so tests can

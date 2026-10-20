@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -113,5 +114,51 @@ func TestChecksumETagAndConditionalRequests(t *testing.T) {
 	}
 	if rec := put("", "plain"); rec.Code != http.StatusOK {
 		t.Errorf("PUT without If-Match: %d, want 200", rec.Code)
+	}
+}
+
+// TestDirectHandlerErrorsMatchVanguard checks that the direct content handlers
+// fail with the same JSON body and codes as the routes Vanguard serves.
+func TestDirectHandlerErrorsMatchVanguard(t *testing.T) {
+	svc, id := newTestService(t, memory.New(), "text/plain", "hello")
+	h := newTestHandler(t, svc)
+	const missing = "AAAAAAAAAAAAAAAAAAAAA"
+
+	send := func(owner, method, target string, header ...string) *httptest.ResponseRecorder {
+		var body io.Reader
+		if method == http.MethodPut {
+			body = strings.NewReader("new")
+		}
+		req := httptest.NewRequest(method, target, body)
+		for i := 0; i < len(header); i += 2 {
+			req.Header.Set(header[i], header[i+1])
+		}
+		return serveAs(h, owner, req)
+	}
+
+	// A missing file through Vanguard and through a direct handler.
+	vanguardCode, _ := apiErrorBody(t, send("1", http.MethodGet, "/v1/files/"+missing))
+	directCode, message := apiErrorBody(t, send("1", http.MethodGet, "/v1/files/"+missing+"/content"))
+	if vanguardCode != 5 || directCode != vanguardCode || !strings.Contains(message, "file not found") {
+		t.Errorf("missing file: Vanguard code %d, direct code %d (%q), want 5 for both", vanguardCode, directCode, message)
+	}
+
+	for _, tc := range []struct {
+		name         string
+		rec          *httptest.ResponseRecorder
+		status, code int
+	}{
+		{"other user's content", send("2", http.MethodGet, "/v1/files/"+id+"/content"), http.StatusForbidden, 7},
+		{"stale If-Match", send("1", http.MethodPut, "/v1/files/"+id+"/content", "If-Match", `"stale=="`), http.StatusPreconditionFailed, 9},
+		{"unsatisfiable range", send("1", http.MethodGet, "/v1/files/"+id+"/content", "Range", "bytes=10-20"), http.StatusRequestedRangeNotSatisfiable, 11},
+		{"multipart replace", send("1", http.MethodPut, "/v1/files/"+id+"/content", "Content-Type", "multipart/form-data; boundary=x"), http.StatusBadRequest, 3},
+	} {
+		if tc.rec.Code != tc.status {
+			t.Errorf("%s: status = %d, want %d", tc.name, tc.rec.Code, tc.status)
+			continue
+		}
+		if code, _ := apiErrorBody(t, tc.rec); code != tc.code {
+			t.Errorf("%s: code = %d, want %d", tc.name, code, tc.code)
+		}
 	}
 }

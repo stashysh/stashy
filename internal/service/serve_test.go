@@ -3,6 +3,7 @@ package service
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/stashysh/stashy/internal/auth"
@@ -16,7 +17,7 @@ func TestServeFileFullResponse(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/"+id, nil)
 	rec := httptest.NewRecorder()
 
-	svc.ServeFile(rec, req, id)
+	svc.ServeFile(rec, req, id, http.Error)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -43,7 +44,7 @@ func TestServeFileByteRange(t *testing.T) {
 	req.Header.Set("Range", "bytes=2-5")
 	rec := httptest.NewRecorder()
 
-	svc.ServeFile(rec, req, id)
+	svc.ServeFile(rec, req, id, http.Error)
 
 	if rec.Code != http.StatusPartialContent {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusPartialContent)
@@ -75,7 +76,7 @@ func TestServeFileHeadDoesNotOpenBody(t *testing.T) {
 	req := httptest.NewRequest(http.MethodHead, "/"+id, nil)
 	rec := httptest.NewRecorder()
 
-	svc.ServeFile(rec, req, id)
+	svc.ServeFile(rec, req, id, http.Error)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
@@ -102,7 +103,7 @@ func TestServeFileHeadByteRangeDoesNotOpenRangeBody(t *testing.T) {
 	req.Header.Set("Range", "bytes=2-5")
 	rec := httptest.NewRecorder()
 
-	svc.ServeFile(rec, req, id)
+	svc.ServeFile(rec, req, id, http.Error)
 
 	if rec.Code != http.StatusPartialContent {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusPartialContent)
@@ -122,7 +123,7 @@ func TestServeFileOpenEndedByteRange(t *testing.T) {
 	req.Header.Set("Range", "bytes=7-")
 	rec := httptest.NewRecorder()
 
-	svc.ServeFile(rec, req, id)
+	svc.ServeFile(rec, req, id, http.Error)
 
 	if rec.Code != http.StatusPartialContent {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusPartialContent)
@@ -142,7 +143,7 @@ func TestServeFileSuffixByteRange(t *testing.T) {
 	req.Header.Set("Range", "bytes=-4")
 	rec := httptest.NewRecorder()
 
-	svc.ServeFile(rec, req, id)
+	svc.ServeFile(rec, req, id, http.Error)
 
 	if rec.Code != http.StatusPartialContent {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusPartialContent)
@@ -162,7 +163,7 @@ func TestServeFileUnsatisfiableByteRange(t *testing.T) {
 	req.Header.Set("Range", "bytes=10-20")
 	rec := httptest.NewRecorder()
 
-	svc.ServeFile(rec, req, id)
+	svc.ServeFile(rec, req, id, http.Error)
 
 	if rec.Code != http.StatusRequestedRangeNotSatisfiable {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestedRangeNotSatisfiable)
@@ -370,5 +371,25 @@ func TestPublicFileHandlerEnforcesVisibility(t *testing.T) {
 				t.Errorf("%s file, viewer %q: status = %d, want %d", tc.visibility, viewer, got, want)
 			}
 		}
+	}
+}
+
+// TestPublicFileHandlerErrorsArePlainText checks that public file links keep
+// plain-text errors for browsers, unlike the API.
+func TestPublicFileHandlerErrorsArePlainText(t *testing.T) {
+	database := newTestDB(t)
+	store := memory.New()
+	f := putTestFile(t, database, store, "1", "text/plain", "0123456789")
+	if err := database.SetFileVisibility(t.Context(), f.ID, "1", db.VisibilityPublic); err != nil {
+		t.Fatalf("SetFileVisibility: %v", err)
+	}
+	handler := New(store, database, "http://example.test").PublicFileHandler(auth.NewSessionManager("test-secret"))
+
+	req := httptest.NewRequest(http.MethodGet, "/"+f.ID, nil)
+	req.Header.Set("Range", "bytes=10-20")
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusRequestedRangeNotSatisfiable || !strings.HasPrefix(rec.Header().Get("Content-Type"), "text/plain") {
+		t.Fatalf("status %d, Content-Type %q; want 416 as plain text", rec.Code, rec.Header().Get("Content-Type"))
 	}
 }

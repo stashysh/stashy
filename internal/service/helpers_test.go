@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -96,4 +97,26 @@ func serveAs(h http.Handler, owner string, req *http.Request) *httptest.Response
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
 	return rec
+}
+
+// apiErrorBody decodes a REST error response, failing the test unless it is
+// the google.rpc.Status JSON that every /v1/ endpoint returns.
+func apiErrorBody(t *testing.T, rec *httptest.ResponseRecorder) (code int, message string) {
+	t.Helper()
+
+	if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
+		t.Fatalf("error Content-Type = %q, want application/json; body: %s", ct, rec.Body)
+	}
+	var body struct {
+		Code    *int   `json:"code"`
+		Message string `json:"message"`
+		Details *[]any `json:"details"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("error body: %v; body: %s", err, rec.Body)
+	}
+	if body.Code == nil || body.Details == nil {
+		t.Fatalf("error body %s lacks code or details", rec.Body)
+	}
+	return *body.Code, body.Message
 }

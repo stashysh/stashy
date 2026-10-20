@@ -69,7 +69,7 @@ func (s *FileService) PublicFileHandler(sessions *auth.SessionManager) http.Hand
 			return
 		}
 
-		s.ServeFile(w, r, id)
+		s.ServeFile(w, r, id, http.Error)
 	}
 }
 
@@ -98,15 +98,17 @@ func splitFilePath(p string) (id, slug string, ok bool) {
 // ServeFile fetches id and streams it directly to w. Metadata (content type,
 // size) comes from the database; storage is only touched for the bytes.
 // The caller is responsible for any authorization checks before calling this.
-func (s *FileService) ServeFile(w http.ResponseWriter, r *http.Request, id string) {
+// Errors are written with httpError: http.Error for browsers, apiError for
+// the API.
+func (s *FileService) ServeFile(w http.ResponseWriter, r *http.Request, id string, httpError func(w http.ResponseWriter, message string, status int)) {
 	f, err := s.db.GetFile(r.Context(), id)
 	if err != nil {
 		if errors.Is(err, db.ErrFileNotFound) {
-			http.NotFound(w, r)
+			httpError(w, "file not found", http.StatusNotFound)
 			return
 		}
 		log.Printf("ServeFile %s: %v", id, err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		httpError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 
@@ -129,7 +131,7 @@ func (s *FileService) ServeFile(w http.ResponseWriter, r *http.Request, id strin
 	}
 
 	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
-		s.serveFileRange(w, r, id, f.Size, rangeHeader)
+		s.serveFileRange(w, r, id, f.Size, rangeHeader, httpError)
 		return
 	}
 
@@ -141,7 +143,7 @@ func (s *FileService) ServeFile(w http.ResponseWriter, r *http.Request, id strin
 	rc, err := s.store.Get(r.Context(), id)
 	if err != nil {
 		log.Printf("ServeFile %s: %v", id, err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		httpError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	defer rc.Close()
@@ -153,11 +155,11 @@ func (s *FileService) ServeFile(w http.ResponseWriter, r *http.Request, id strin
 
 // serveFileRange handles Range requests. Content-Type and Accept-Ranges are
 // already set by ServeFile.
-func (s *FileService) serveFileRange(w http.ResponseWriter, r *http.Request, id string, size int64, rangeHeader string) {
+func (s *FileService) serveFileRange(w http.ResponseWriter, r *http.Request, id string, size int64, rangeHeader string, httpError func(w http.ResponseWriter, message string, status int)) {
 	byteRange, err := parseByteRange(rangeHeader, size)
 	if err != nil {
 		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", size))
-		http.Error(w, "requested range not satisfiable", http.StatusRequestedRangeNotSatisfiable)
+		httpError(w, "requested range not satisfiable", http.StatusRequestedRangeNotSatisfiable)
 		return
 	}
 
@@ -171,7 +173,7 @@ func (s *FileService) serveFileRange(w http.ResponseWriter, r *http.Request, id 
 	rc, err := s.store.GetRange(r.Context(), id, byteRange.start, byteRange.length())
 	if err != nil {
 		log.Printf("ServeFile %s: get range: %v", id, err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		httpError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	defer rc.Close()
