@@ -2,168 +2,19 @@ package service
 
 import (
 	"errors"
-	"fmt"
-	"io"
 	"log"
-	"mime"
 	"net/http"
-	"strconv"
-	"strings"
 
-	"buf.build/go/protovalidate"
-	"google.golang.org/genproto/googleapis/api/httpbody"
 	"google.golang.org/protobuf/encoding/protojson"
 
-	stashyv1 "github.com/stashysh/stashy/gen/stashy/v1"
 	"github.com/stashysh/stashy/internal/auth"
 	"github.com/stashysh/stashy/internal/db"
 )
 
-// ServeFile fetches id and streams it directly to w. Metadata (content type,
-// size) comes from the database; storage is only touched for the bytes.
-// The caller is responsible for any authorization checks before calling this.
-func (s *FileService) ServeFile(w http.ResponseWriter, r *http.Request, id string) {
-	f, err := s.db.GetFile(r.Context(), id)
-	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			http.NotFound(w, r)
-			return
-		}
-		log.Printf("ServeFile %s: %v", id, err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	// Set once for every path below: full GET, HEAD, and range responses.
-	w.Header().Set("Content-Type", f.ContentType)
-	w.Header().Set("Accept-Ranges", "bytes")
-	if f.Checksum != "" {
-		w.Header().Set("ETag", etag(f.Checksum))
-		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && etagMatchesIfNoneMatch(r.Header.Get("If-None-Match"), f.Checksum) {
-			w.WriteHeader(http.StatusNotModified)
-			return
-		}
-	}
-	if f.Name != "" {
-		// inline keeps browsers displaying the file; the filename is used
-		// when it is saved. FormatMediaType encodes non-ASCII names per RFC 2231.
-		if cd := mime.FormatMediaType("inline", map[string]string{"filename": f.Name}); cd != "" {
-			w.Header().Set("Content-Disposition", cd)
-		}
-	}
-
-	if rangeHeader := r.Header.Get("Range"); rangeHeader != "" {
-		s.serveFileRange(w, r, id, f.Size, rangeHeader)
-		return
-	}
-
-	w.Header().Set("Content-Length", strconv.FormatInt(f.Size, 10))
-	if r.Method == http.MethodHead {
-		return
-	}
-
-	rc, err := s.store.Get(r.Context(), id)
-	if err != nil {
-		log.Printf("ServeFile %s: %v", id, err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	defer rc.Close()
-
-	if _, err := io.Copy(w, rc); err != nil {
-		log.Printf("ServeFile %s: copy: %v", id, err)
-	}
-}
-
-// serveFileRange handles Range requests. Content-Type and Accept-Ranges are
-// already set by ServeFile.
-func (s *FileService) serveFileRange(w http.ResponseWriter, r *http.Request, id string, size int64, rangeHeader string) {
-	byteRange, err := parseByteRange(rangeHeader, size)
-	if err != nil {
-		w.Header().Set("Content-Range", fmt.Sprintf("bytes */%d", size))
-		http.Error(w, "requested range not satisfiable", http.StatusRequestedRangeNotSatisfiable)
-		return
-	}
-
-	w.Header().Set("Content-Length", strconv.FormatInt(byteRange.length(), 10))
-	w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", byteRange.start, byteRange.end, size))
-	if r.Method == http.MethodHead {
-		w.WriteHeader(http.StatusPartialContent)
-		return
-	}
-
-	rc, err := s.store.GetRange(r.Context(), id, byteRange.start, byteRange.length())
-	if err != nil {
-		log.Printf("ServeFile %s: get range: %v", id, err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-	defer rc.Close()
-
-	w.WriteHeader(http.StatusPartialContent)
-	if _, err := io.CopyN(w, rc, byteRange.length()); err != nil {
-		log.Printf("ServeFile %s: copy: %v", id, err)
-	}
-}
-
-type byteRange struct {
-	start int64
-	end   int64
-}
-
-func (r byteRange) length() int64 {
-	return r.end - r.start + 1
-}
-
-func parseByteRange(header string, size int64) (byteRange, error) {
-	if size <= 0 || !strings.HasPrefix(header, "bytes=") {
-		return byteRange{}, fmt.Errorf("invalid range")
-	}
-
-	spec := strings.TrimSpace(strings.TrimPrefix(header, "bytes="))
-	if spec == "" || strings.Contains(spec, ",") {
-		return byteRange{}, fmt.Errorf("invalid range")
-	}
-
-	startText, endText, ok := strings.Cut(spec, "-")
-	if !ok {
-		return byteRange{}, fmt.Errorf("invalid range")
-	}
-
-	if startText == "" {
-		suffixLength, err := strconv.ParseInt(endText, 10, 64)
-		if err != nil || suffixLength <= 0 {
-			return byteRange{}, fmt.Errorf("invalid range")
-		}
-		if suffixLength > size {
-			suffixLength = size
-		}
-		return byteRange{start: size - suffixLength, end: size - 1}, nil
-	}
-
-	start, err := strconv.ParseInt(startText, 10, 64)
-	if err != nil || start < 0 || start >= size {
-		return byteRange{}, fmt.Errorf("invalid range")
-	}
-
-	end := size - 1
-	if endText != "" {
-		end, err = strconv.ParseInt(endText, 10, 64)
-		if err != nil || end < start {
-			return byteRange{}, fmt.Errorf("invalid range")
-		}
-		if end >= size {
-			end = size - 1
-		}
-	}
-
-	return byteRange{start: start, end: end}, nil
-}
-
-// HTTPGetFileContent handles GET /v1/files/{id}/content directly, bypassing
-// Vanguard. Authentication is enforced by upstream middleware; ownership is
-// checked here.
-func (s *FileService) HTTPGetFileContent(w http.ResponseWriter, r *http.Request) {
+// httpGetFileContent handles GET /v1/files/{id}/content directly, bypassing
+// Vanguard, so downloads get Range, HEAD, and conditional GET. Authentication
+// is enforced by upstream middleware; ownership is checked here.
+func (s *FileService) httpGetFileContent(w http.ResponseWriter, r *http.Request) {
 	owner, ok := auth.UserIDFromContext(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -172,64 +23,15 @@ func (s *FileService) HTTPGetFileContent(w http.ResponseWriter, r *http.Request)
 
 	id := r.PathValue("id")
 	if err := s.db.CheckFileOwner(r.Context(), id, owner); err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			http.NotFound(w, r)
-			return
-		}
-		if strings.Contains(err.Error(), "permission denied") {
-			http.Error(w, "permission denied", http.StatusForbidden)
-			return
-		}
-		log.Printf("HTTPGetFileContent %s: %v", id, err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		writeHTTPError(w, r, "httpGetFileContent", err)
 		return
 	}
 	s.ServeFile(w, r, id)
 }
 
-// HTTPCreateFile handles POST /v1/files directly, bypassing Vanguard.
-// Streaming r.Body straight to storage avoids the full-body buffering that
-// Vanguard does when transcoding HttpBody RPCs (see github.com/stashysh/stashy/issues/23).
-func (s *FileService) HTTPCreateFile(w http.ResponseWriter, r *http.Request) {
-	owner, _ := auth.UserIDFromContext(r.Context())
-
-	ct, err := validateContentType(r.Header.Get("Content-Type"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	query := r.URL.Query()
-	meta := db.File{
-		Owner:       owner,
-		Slug:        query.Get("slug"),
-		Name:        query.Get("name"),
-		Visibility:  query.Get("visibility"),
-		ContentType: ct,
-	}
-	// Validate against the same rules as the CreateFile RPC.
-	msg := &stashyv1.CreateFileRequest{Content: &httpbody.HttpBody{}, Slug: &meta.Slug, Name: &meta.Name}
-	if query.Has("visibility") {
-		msg.Visibility = &meta.Visibility
-	}
-	if err := protovalidate.Validate(msg); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	f, err := s.putFile(r.Context(), meta, r.Body)
-	if err != nil {
-		log.Printf("HTTPCreateFile: %v", err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
-		return
-	}
-
-	s.writeFileJSON(w, f)
-}
-
-// HTTPUpdateFileContent handles PUT /v1/files/{id}/content directly, bypassing
-// Vanguard.
-func (s *FileService) HTTPUpdateFileContent(w http.ResponseWriter, r *http.Request) {
+// httpUpdateFileContent handles PUT /v1/files/{id}/content directly, bypassing
+// Vanguard, so a failed If-Match precondition can answer 412.
+func (s *FileService) httpUpdateFileContent(w http.ResponseWriter, r *http.Request) {
 	owner, ok := auth.UserIDFromContext(r.Context())
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -250,27 +52,30 @@ func (s *FileService) HTTPUpdateFileContent(w http.ResponseWriter, r *http.Reque
 
 	f, err := s.replaceFile(r.Context(), id, owner, ct, r.Header.Get("If-Match"), r.Body)
 	if err != nil {
-		if errors.Is(err, errPreconditionFailed) {
-			http.Error(w, err.Error(), http.StatusPreconditionFailed)
-			return
-		}
-		if strings.Contains(err.Error(), "not found") {
-			http.NotFound(w, r)
-			return
-		}
-		if strings.Contains(err.Error(), "permission denied") {
-			http.Error(w, "permission denied", http.StatusForbidden)
-			return
-		}
-		log.Printf("HTTPUpdateFileContent %s: %v", id, err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		writeHTTPError(w, r, "httpUpdateFileContent", err)
 		return
 	}
 
 	s.writeFileJSON(w, f)
 }
 
-// fileJSON matches the Vanguard JSON codec options in cmd/stashy, so the
+// writeHTTPError answers a direct handler's request with the status for a
+// db-layer error, logging anything unexpected under op.
+func writeHTTPError(w http.ResponseWriter, r *http.Request, op string, err error) {
+	switch {
+	case errors.Is(err, errPreconditionFailed):
+		http.Error(w, err.Error(), http.StatusPreconditionFailed)
+	case errors.Is(err, db.ErrFileNotFound):
+		http.NotFound(w, r)
+	case errors.Is(err, db.ErrPermissionDenied):
+		http.Error(w, "permission denied", http.StatusForbidden)
+	default:
+		log.Printf("%s %s: %v", op, r.PathValue("id"), err)
+		http.Error(w, "internal error", http.StatusInternalServerError)
+	}
+}
+
+// fileJSON matches the Vanguard JSON codec options in Mount, so the
 // direct handlers return the same body as the transcoded RPCs.
 var fileJSON = protojson.MarshalOptions{UseProtoNames: true, EmitUnpopulated: true}
 
@@ -288,34 +93,4 @@ func (s *FileService) writeFileJSON(w http.ResponseWriter, f *db.File) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(b)
-}
-
-// etag is the strong HTTP entity tag for a file's content checksum.
-func etag(checksum string) string {
-	return `"` + checksum + `"`
-}
-
-// etagMatchesIfMatch reports whether an If-Match header matches the current
-// content. If-Match uses strong comparison: weak tags never match, and a file
-// without a checksum matches only "*".
-func etagMatchesIfMatch(header, checksum string) bool {
-	for _, tag := range strings.Split(header, ",") {
-		tag = strings.TrimSpace(tag)
-		if tag == "*" || (checksum != "" && tag == etag(checksum)) {
-			return true
-		}
-	}
-	return false
-}
-
-// etagMatchesIfNoneMatch reports whether an If-None-Match header matches the
-// current content, using weak comparison.
-func etagMatchesIfNoneMatch(header, checksum string) bool {
-	for _, tag := range strings.Split(header, ",") {
-		tag = strings.TrimPrefix(strings.TrimSpace(tag), "W/")
-		if tag == "*" || tag == etag(checksum) {
-			return true
-		}
-	}
-	return false
 }

@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"buf.build/go/protovalidate"
-	"connectrpc.com/connect"
 	"github.com/google/jsonschema-go/jsonschema"
 	mcpauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -20,10 +19,10 @@ import (
 	"github.com/stashysh/stashy/internal/db"
 )
 
-// MCPHandler serves the Model Context Protocol at /mcp. It authenticates with
-// the same Bearer API keys as /v1/*, and its tools call the FileService
-// methods so ownership checks and validation stay in one place.
-func (s *FileService) MCPHandler(database *db.DB, version string) http.Handler {
+// mcpHandler serves the Model Context Protocol. It authenticates with the
+// same Bearer API keys as /v1/*, and its tools call the FileService methods
+// so ownership checks and validation stay in one place.
+func (s *FileService) mcpHandler(version string) http.Handler {
 	server := mcp.NewServer(&mcp.Implementation{Name: "stashy", Version: version}, nil)
 	s.addMCPTools(server)
 
@@ -34,7 +33,7 @@ func (s *FileService) MCPHandler(database *db.DB, version string) http.Handler {
 	)
 
 	verify := func(ctx context.Context, token string, _ *http.Request) (*mcpauth.TokenInfo, error) {
-		key, err := database.LookupAPIKey(ctx, token)
+		key, err := s.db.LookupAPIKey(ctx, token)
 		if err != nil {
 			return nil, fmt.Errorf("%w: invalid api key", mcpauth.ErrInvalidToken)
 		}
@@ -200,7 +199,7 @@ func textResult(out any) *mcp.CallToolResult {
 func callUnary[Req, Res any](
 	ctx context.Context,
 	req *mcp.CallToolRequest,
-	method func(context.Context, *connect.Request[Req]) (*connect.Response[Res], error),
+	method func(context.Context, *Req) (*Res, error),
 	msg *Req,
 ) (*Res, error) {
 	if err := protovalidate.Validate(any(msg).(proto.Message)); err != nil {
@@ -210,11 +209,11 @@ func callUnary[Req, Res any](
 	if err != nil {
 		return nil, err
 	}
-	resp, err := method(auth.ContextWithUserID(ctx, owner), connect.NewRequest(msg))
+	resp, err := method(auth.ContextWithUserID(ctx, owner), msg)
 	if err != nil {
 		return nil, err
 	}
-	return resp.Msg, nil
+	return resp, nil
 }
 
 // mcpOwner returns the user id that the bearer-token middleware attached.

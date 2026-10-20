@@ -53,7 +53,7 @@ func (s *Storage) Get(ctx context.Context, id string) (io.ReadCloser, error) {
 	})
 	if err != nil {
 		if isNotFound(err) {
-			return nil, fmt.Errorf("file not found: %s", id)
+			return nil, fmt.Errorf("%w: %s", storage.ErrNotFound, id)
 		}
 		return nil, fmt.Errorf("getting object: %w", err)
 	}
@@ -71,7 +71,7 @@ func (s *Storage) GetRange(ctx context.Context, id string, start, length int64) 
 	})
 	if err != nil {
 		if isNotFound(err) {
-			return nil, fmt.Errorf("file not found: %s", id)
+			return nil, fmt.Errorf("%w: %s", storage.ErrNotFound, id)
 		}
 		return nil, fmt.Errorf("getting object range: %w", err)
 	}

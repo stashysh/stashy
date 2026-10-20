@@ -1,234 +1,117 @@
 package service
 
 import (
-	"context"
-	"io"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
-	_ "modernc.org/sqlite"
-
-	"github.com/stashysh/stashy/internal/db"
-	"github.com/stashysh/stashy/internal/storage"
 	"github.com/stashysh/stashy/internal/storage/memory"
 )
 
-func TestServeFileFullResponse(t *testing.T) {
-	svc, id := newTestService(t, memory.New(), "video/mp4", "0123456789")
+func TestHTTPGetFileContentChecksOwner(t *testing.T) {
+	svc, id := newTestService(t, memory.New(), "text/plain", "hello")
 
-	req := httptest.NewRequest(http.MethodGet, "/"+id, nil)
-	rec := httptest.NewRecorder()
+	for _, tc := range []struct {
+		owner, id string
+		want      int
+	}{
+		{"1", id, http.StatusOK},
+		{"2", id, http.StatusForbidden},
+		{"1", "AAAAAAAAAAAAAAAAAAAAA", http.StatusNotFound},
+	} {
+		req := httptest.NewRequest(http.MethodGet, "/v1/files/"+tc.id+"/content", nil)
+		req.SetPathValue("id", tc.id)
+		rec := serveAs(http.HandlerFunc(svc.httpGetFileContent), tc.owner, req)
+		if rec.Code != tc.want {
+			t.Errorf("owner %s, id %s: status = %d, want %d", tc.owner, tc.id, rec.Code, tc.want)
+		}
+		if tc.want == http.StatusOK && rec.Body.String() != "hello" {
+			t.Errorf("body = %q, want hello", rec.Body)
+		}
+	}
+}
 
-	svc.ServeFile(rec, req, id)
+func TestChecksumETagAndConditionalRequests(t *testing.T) {
+	svc, _ := newListService(t, 0)
+	transcoder := newTestHandler(t, svc)
 
+	// Upload: the response carries the checksum and an ETag.
+	req := httptest.NewRequest(http.MethodPost, "/v1/files", strings.NewReader("hello"))
+	req.Header.Set("Content-Type", "text/plain")
+	rec := serveAs(transcoder, "1", req)
+	var created map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
+		t.Fatalf("create: %v; body: %s", err, rec.Body)
+	}
+	id := created["id"].(string)
+	if created["checksum"] != "mnG7TA==" || rec.Header().Get("ETag") != `"mnG7TA=="` {
+		t.Fatalf("create: checksum %v, ETag %q", created["checksum"], rec.Header().Get("ETag"))
+	}
+
+	get := func(method, ifNoneMatch string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(method, "/v1/files/"+id+"/content", nil)
+		req.SetPathValue("id", id)
+		if ifNoneMatch != "" {
+			req.Header.Set("If-None-Match", ifNoneMatch)
+		}
+		return serveAs(http.HandlerFunc(svc.httpGetFileContent), "1", req)
+	}
+	put := func(ifMatch, body string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPut, "/v1/files/"+id+"/content", strings.NewReader(body))
+		req.SetPathValue("id", id)
+		req.Header.Set("Content-Type", "text/plain")
+		if ifMatch != "" {
+			req.Header.Set("If-Match", ifMatch)
+		}
+		return serveAs(http.HandlerFunc(svc.httpUpdateFileContent), "1", req)
+	}
+
+	// Download: ETag, and 304 when the client already has this version.
+	if rec := get(http.MethodGet, ""); rec.Code != http.StatusOK || rec.Header().Get("ETag") != `"mnG7TA=="` || rec.Body.String() != "hello" {
+		t.Fatalf("GET: %d, ETag %q, body %q", rec.Code, rec.Header().Get("ETag"), rec.Body)
+	}
+	for _, inm := range []string{`"mnG7TA=="`, `W/"mnG7TA=="`, `"other", "mnG7TA=="`, "*"} {
+		if rec := get(http.MethodGet, inm); rec.Code != http.StatusNotModified || rec.Body.Len() != 0 {
+			t.Errorf("GET If-None-Match %s: %d with %d body bytes, want 304 and none", inm, rec.Code, rec.Body.Len())
+		}
+	}
+	if rec := get(http.MethodHead, `"mnG7TA=="`); rec.Code != http.StatusNotModified {
+		t.Errorf("HEAD If-None-Match: %d, want 304", rec.Code)
+	}
+	if rec := get(http.MethodGet, `"stale=="`); rec.Code != http.StatusOK {
+		t.Errorf("GET with a stale If-None-Match: %d, want 200", rec.Code)
+	}
+
+	// Conditional update: a stale or weak tag is rejected without writing.
+	for _, stale := range []string{`"stale=="`, `W/"mnG7TA=="`} {
+		if rec := put(stale, "lost update"); rec.Code != http.StatusPreconditionFailed {
+			t.Errorf("PUT If-Match %s: %d, want 412", stale, rec.Code)
+		}
+	}
+	if rec := get(http.MethodGet, ""); rec.Body.String() != "hello" {
+		t.Fatalf("content changed by a rejected PUT: %q", rec.Body)
+	}
+
+	// The current tag succeeds and returns the new ETag.
+	rec = put(`"mnG7TA=="`, "hello, world")
 	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+		t.Fatalf("PUT If-Match current: %d; body: %s", rec.Code, rec.Body)
 	}
-	if got := rec.Header().Get("Accept-Ranges"); got != "bytes" {
-		t.Fatalf("Accept-Ranges = %q, want bytes", got)
+	newTag := rec.Header().Get("ETag")
+	if newTag == "" || newTag == `"mnG7TA=="` {
+		t.Fatalf("PUT: ETag %q, want a new tag", newTag)
 	}
-	if got := rec.Header().Get("Content-Type"); got != "video/mp4" {
-		t.Fatalf("Content-Type = %q, want video/mp4", got)
-	}
-	if got := rec.Header().Get("Content-Length"); got != "10" {
-		t.Fatalf("Content-Length = %q, want 10", got)
-	}
-	if got := rec.Body.String(); got != "0123456789" {
-		t.Fatalf("body = %q", got)
-	}
-}
-
-func TestServeFileByteRange(t *testing.T) {
-	store := &rangeTrackingStore{Storage: memory.New()}
-	svc, id := newTestService(t, store, "video/mp4", "0123456789")
-
-	req := httptest.NewRequest(http.MethodGet, "/"+id, nil)
-	req.Header.Set("Range", "bytes=2-5")
-	rec := httptest.NewRecorder()
-
-	svc.ServeFile(rec, req, id)
-
-	if rec.Code != http.StatusPartialContent {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusPartialContent)
-	}
-	if got := rec.Header().Get("Content-Range"); got != "bytes 2-5/10" {
-		t.Fatalf("Content-Range = %q, want bytes 2-5/10", got)
-	}
-	if got := rec.Header().Get("Content-Length"); got != "4" {
-		t.Fatalf("Content-Length = %q, want 4", got)
-	}
-	if got := rec.Body.String(); got != "2345" {
-		t.Fatalf("body = %q", got)
-	}
-	if store.getCalls != 0 {
-		t.Fatalf("Get calls = %d, want 0", store.getCalls)
-	}
-	if store.getRangeCalls != 1 {
-		t.Fatalf("GetRange calls = %d, want 1", store.getRangeCalls)
-	}
-	if store.rangeStart != 2 || store.rangeLength != 4 {
-		t.Fatalf("range = %d+%d, want 2+4", store.rangeStart, store.rangeLength)
-	}
-}
-
-func TestServeFileHeadDoesNotOpenBody(t *testing.T) {
-	store := &rangeTrackingStore{Storage: memory.New()}
-	svc, id := newTestService(t, store, "video/mp4", "0123456789")
-
-	req := httptest.NewRequest(http.MethodHead, "/"+id, nil)
-	rec := httptest.NewRecorder()
-
-	svc.ServeFile(rec, req, id)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	if got := rec.Header().Get("Content-Length"); got != "10" {
-		t.Fatalf("Content-Length = %q, want 10", got)
-	}
-	if got := rec.Header().Get("Accept-Ranges"); got != "bytes" {
-		t.Fatalf("Accept-Ranges = %q, want bytes", got)
-	}
-	if store.getCalls != 0 {
-		t.Fatalf("Get calls = %d, want 0", store.getCalls)
-	}
-	if store.getRangeCalls != 0 {
-		t.Fatalf("GetRange calls = %d, want 0", store.getRangeCalls)
-	}
-}
-
-func TestServeFileHeadByteRangeDoesNotOpenRangeBody(t *testing.T) {
-	store := &rangeTrackingStore{Storage: memory.New()}
-	svc, id := newTestService(t, store, "video/mp4", "0123456789")
-
-	req := httptest.NewRequest(http.MethodHead, "/"+id, nil)
-	req.Header.Set("Range", "bytes=2-5")
-	rec := httptest.NewRecorder()
-
-	svc.ServeFile(rec, req, id)
-
-	if rec.Code != http.StatusPartialContent {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusPartialContent)
-	}
-	if got := rec.Header().Get("Content-Range"); got != "bytes 2-5/10" {
-		t.Fatalf("Content-Range = %q, want bytes 2-5/10", got)
-	}
-	if store.getRangeCalls != 0 {
-		t.Fatalf("GetRange calls = %d, want 0", store.getRangeCalls)
-	}
-}
-
-func TestServeFileOpenEndedByteRange(t *testing.T) {
-	svc, id := newTestService(t, memory.New(), "video/mp4", "0123456789")
-
-	req := httptest.NewRequest(http.MethodGet, "/"+id, nil)
-	req.Header.Set("Range", "bytes=7-")
-	rec := httptest.NewRecorder()
-
-	svc.ServeFile(rec, req, id)
-
-	if rec.Code != http.StatusPartialContent {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusPartialContent)
-	}
-	if got := rec.Header().Get("Content-Range"); got != "bytes 7-9/10" {
-		t.Fatalf("Content-Range = %q, want bytes 7-9/10", got)
-	}
-	if got := rec.Body.String(); got != "789" {
-		t.Fatalf("body = %q", got)
-	}
-}
-
-func TestServeFileSuffixByteRange(t *testing.T) {
-	svc, id := newTestService(t, memory.New(), "video/mp4", "0123456789")
-
-	req := httptest.NewRequest(http.MethodGet, "/"+id, nil)
-	req.Header.Set("Range", "bytes=-4")
-	rec := httptest.NewRecorder()
-
-	svc.ServeFile(rec, req, id)
-
-	if rec.Code != http.StatusPartialContent {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusPartialContent)
-	}
-	if got := rec.Header().Get("Content-Range"); got != "bytes 6-9/10" {
-		t.Fatalf("Content-Range = %q, want bytes 6-9/10", got)
-	}
-	if got := rec.Body.String(); got != "6789" {
-		t.Fatalf("body = %q", got)
-	}
-}
-
-func TestServeFileUnsatisfiableByteRange(t *testing.T) {
-	svc, id := newTestService(t, memory.New(), "video/mp4", "0123456789")
-
-	req := httptest.NewRequest(http.MethodGet, "/"+id, nil)
-	req.Header.Set("Range", "bytes=10-20")
-	rec := httptest.NewRecorder()
-
-	svc.ServeFile(rec, req, id)
-
-	if rec.Code != http.StatusRequestedRangeNotSatisfiable {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestedRangeNotSatisfiable)
-	}
-	if got := rec.Header().Get("Content-Range"); got != "bytes */10" {
-		t.Fatalf("Content-Range = %q, want bytes */10", got)
-	}
-}
-
-func newTestDB(t *testing.T) *db.DB {
-	t.Helper()
-
-	database, err := db.New(t.Context(), "sqlite", "file:"+t.TempDir()+"/test.db")
-	if err != nil {
-		t.Fatalf("db.New: %v", err)
-	}
-	t.Cleanup(func() { database.Close(context.Background()) })
-
-	if err := database.Migrate(t.Context()); err != nil {
-		t.Fatalf("Migrate: %v", err)
-	}
-	return database
-}
-
-// newTestService builds a FileService over store with one stored file and
-// returns the service and the file's id.
-func newTestService(t *testing.T, store storage.Storage, contentType, body string) (*FileService, string) {
-	t.Helper()
-
-	database := newTestDB(t)
-
-	id, err := storage.NewID()
-	if err != nil {
-		t.Fatalf("NewID: %v", err)
-	}
-	if _, err := store.Put(t.Context(), id, contentType, strings.NewReader(body)); err != nil {
-		t.Fatalf("Put: %v", err)
-	}
-	if _, err := database.CreateFile(t.Context(), db.File{ID: id, Owner: "1", ContentType: contentType, Size: int64(len(body))}); err != nil {
-		t.Fatalf("CreateFile: %v", err)
+	if rec := get(http.MethodGet, ""); rec.Header().Get("ETag") != newTag || rec.Body.String() != "hello, world" {
+		t.Fatalf("after PUT: ETag %q, body %q", rec.Header().Get("ETag"), rec.Body)
 	}
 
-	return New(store, database, "http://example.test"), id
-}
-
-type rangeTrackingStore struct {
-	storage.Storage
-	getCalls      int
-	getRangeCalls int
-	rangeStart    int64
-	rangeLength   int64
-}
-
-func (s *rangeTrackingStore) Get(ctx context.Context, id string) (io.ReadCloser, error) {
-	s.getCalls++
-	return s.Storage.Get(ctx, id)
-}
-
-func (s *rangeTrackingStore) GetRange(ctx context.Context, id string, start, length int64) (io.ReadCloser, error) {
-	s.getRangeCalls++
-	s.rangeStart = start
-	s.rangeLength = length
-	return s.Storage.GetRange(ctx, id, start, length)
+	// "*" and no If-Match at all are unconditional.
+	if rec := put("*", "star"); rec.Code != http.StatusOK {
+		t.Errorf("PUT If-Match *: %d, want 200", rec.Code)
+	}
+	if rec := put("", "plain"); rec.Code != http.StatusOK {
+		t.Errorf("PUT without If-Match: %d, want 200", rec.Code)
+	}
 }

@@ -48,6 +48,16 @@ func NewHandler(database *db.DB, sessions *auth.SessionManager, hostname, versio
 	return h
 }
 
+// RegisterRoutes registers the dashboard pages and the JSON endpoints the API
+// Keys page calls, which live under /auth/keys.
+func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /{$}", h.FilesPage)
+	mux.HandleFunc("GET /keys", h.KeysPage)
+	mux.HandleFunc("POST /auth/keys", h.createKey)
+	mux.HandleFunc("GET /auth/keys", h.listKeys)
+	mux.HandleFunc("DELETE /auth/keys/{id}", h.deleteKey)
+}
+
 type layoutData struct {
 	ActiveTab string
 	Title     string
@@ -129,10 +139,7 @@ func (h *Handler) FilesPage(w http.ResponseWriter, r *http.Request) {
 		data.NextCursor = fileCursor(&files[len(files)-1])
 	}
 	for _, f := range files {
-		path := "/" + f.ID
-		if f.Slug != "" {
-			path += "/" + f.Slug
-		}
+		path := f.Path()
 		data.Files = append(data.Files, fileRow{
 			ID:          f.ID,
 			Name:        f.Name,

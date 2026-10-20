@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/binary"
+	"errors"
 	"hash"
 	"hash/crc32"
 	"io"
@@ -16,6 +17,9 @@ var NewID = func() (string, error) {
 	return gonanoid.New()
 }
 
+// ErrNotFound reports that a backend holds no bytes for the requested id.
+var ErrNotFound = errors.New("file not found")
+
 // Storage is the abstraction over file byte-storage backends (memory, local
 // disk, S3, GCS). File metadata — owner, content type, size, visibility,
 // slug — lives in the database (db.File); backends only store raw bytes
@@ -27,10 +31,12 @@ type Storage interface {
 	// bucket access; serving always uses the database value.
 	Put(ctx context.Context, id, contentType string, r io.Reader) (Stored, error)
 
-	// Get retrieves a file's bytes by ID. The caller must close the returned ReadCloser.
+	// Get retrieves a file's bytes by ID, or an error wrapping ErrNotFound.
+	// The caller must close the returned ReadCloser.
 	Get(ctx context.Context, id string) (io.ReadCloser, error)
 
-	// GetRange retrieves a byte range by ID. The caller must close the returned ReadCloser.
+	// GetRange retrieves a byte range by ID, or an error wrapping ErrNotFound.
+	// The caller must close the returned ReadCloser.
 	GetRange(ctx context.Context, id string, start, length int64) (io.ReadCloser, error)
 
 	// Delete removes a file's bytes. Deleting a missing file is not an error.

@@ -8,16 +8,13 @@ import (
 	"strings"
 	"testing"
 
-	"connectrpc.com/connect"
-	"connectrpc.com/validate"
-	"connectrpc.com/vanguard"
+	"connectrpc.com/connect/v2"
+	"connectrpc.com/connect/v2/connecthttp"
 	"google.golang.org/protobuf/proto"
 
 	stashyv1 "github.com/stashysh/stashy/gen/stashy/v1"
 	"github.com/stashysh/stashy/gen/stashy/v1/stashyv1connect"
 	"github.com/stashysh/stashy/internal/auth"
-	"github.com/stashysh/stashy/internal/db"
-	"github.com/stashysh/stashy/internal/storage"
 	"github.com/stashysh/stashy/internal/storage/memory"
 )
 
@@ -27,36 +24,23 @@ func newListService(t *testing.T, n int) (*FileService, string) {
 	t.Helper()
 
 	database := newTestDB(t)
+	store := memory.New()
 	for range n {
-		createTestFile(t, database, "1")
+		putTestFile(t, database, store, "1", "text/plain", "x")
 	}
-	other := createTestFile(t, database, "2")
-	return New(memory.New(), database, "http://example.test"), other.ID
-}
-
-func createTestFile(t *testing.T, database *db.DB, owner string) *db.File {
-	t.Helper()
-
-	id, err := storage.NewID()
-	if err != nil {
-		t.Fatalf("NewID: %v", err)
-	}
-	f, err := database.CreateFile(t.Context(), db.File{ID: id, Owner: owner, ContentType: "text/plain", Size: 1})
-	if err != nil {
-		t.Fatalf("CreateFile: %v", err)
-	}
-	return f
+	other := putTestFile(t, database, store, "2", "text/plain", "x")
+	return New(store, database, "http://example.test"), other.ID
 }
 
 func listFiles(t *testing.T, svc *FileService, msg *stashyv1.ListFilesRequest) ([]*stashyv1.File, error) {
 	t.Helper()
 
 	ctx := auth.ContextWithUserID(t.Context(), "1")
-	resp, err := svc.ListFiles(ctx, connect.NewRequest(msg))
+	resp, err := svc.ListFiles(ctx, msg)
 	if err != nil {
 		return nil, err
 	}
-	return resp.Msg.Files, nil
+	return resp.Files, nil
 }
 
 func TestListFilesPagesNewestFirst(t *testing.T) {
@@ -117,37 +101,9 @@ func TestListFilesRejectsUnknownOrForeignAfter(t *testing.T) {
 
 // TestListFilesREST checks the REST mapping: a bare JSON array body and
 // protovalidate enforcement of limit.
-// newTestTranscoder serves svc's REST mapping with the codec options used in
-// cmd/stashy.
-func newTestTranscoder(t *testing.T, svc *FileService) http.Handler {
-	t.Helper()
-
-	path, handler := stashyv1connect.NewFileServiceHandler(svc, connect.WithInterceptors(validate.NewInterceptor()))
-	transcoder, err := vanguard.NewTranscoder([]*vanguard.Service{vanguard.NewService(path, handler)},
-		vanguard.WithCodec(func(res vanguard.TypeResolver) vanguard.Codec {
-			codec := vanguard.NewJSONCodec(res)
-			codec.MarshalOptions.UseProtoNames = true
-			codec.MarshalOptions.EmitUnpopulated = true
-			return codec
-		}),
-	)
-	if err != nil {
-		t.Fatalf("NewTranscoder: %v", err)
-	}
-	return transcoder
-}
-
-// serveAs runs req through h as the given user.
-func serveAs(h http.Handler, owner string, req *http.Request) *httptest.ResponseRecorder {
-	req = req.WithContext(auth.ContextWithUserID(req.Context(), owner))
-	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, req)
-	return rec
-}
-
 func TestListFilesREST(t *testing.T) {
 	svc, _ := newListService(t, 3)
-	transcoder := newTestTranscoder(t, svc)
+	transcoder := newTestHandler(t, svc)
 
 	get := func(query string) *httptest.ResponseRecorder {
 		return serveAs(transcoder, "1", httptest.NewRequest(http.MethodGet, "/v1/files"+query, nil))
@@ -180,7 +136,7 @@ func TestListFilesREST(t *testing.T) {
 // the transcoded path.
 func TestWriteRPCsReturnFile(t *testing.T) {
 	svc, _ := newListService(t, 0)
-	transcoder := newTestTranscoder(t, svc)
+	transcoder := newTestHandler(t, svc)
 
 	decode := func(t *testing.T, rec *httptest.ResponseRecorder) map[string]any {
 		t.Helper()
@@ -196,7 +152,7 @@ func TestWriteRPCsReturnFile(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/files", strings.NewReader("hello"))
 	req.Header.Set("Content-Type", "text/plain")
-	created := decode(t, serveAs(http.HandlerFunc(svc.HTTPCreateFile), "1", req))
+	created := decode(t, serveAs(transcoder, "1", req))
 	id, _ := created["id"].(string)
 	if created["url"] != "http://example.test/"+id || created["size"] != "5" || created["content_type"] != "text/plain" {
 		t.Fatalf("created = %v", created)
@@ -205,7 +161,7 @@ func TestWriteRPCsReturnFile(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPut, "/v1/files/"+id+"/content", strings.NewReader("hello, world"))
 	req.SetPathValue("id", id)
 	req.Header.Set("Content-Type", "text/markdown")
-	replaced := decode(t, serveAs(http.HandlerFunc(svc.HTTPUpdateFileContent), "1", req))
+	replaced := decode(t, serveAs(http.HandlerFunc(svc.httpUpdateFileContent), "1", req))
 	if replaced["size"] != "12" || replaced["content_type"] != "text/markdown" {
 		t.Fatalf("replaced = %v", replaced)
 	}
@@ -218,12 +174,12 @@ func TestWriteRPCsReturnFile(t *testing.T) {
 	}
 
 	for key := range updated {
-		if _, ok := created[key]; !ok {
+		if _, ok := replaced[key]; !ok {
 			t.Errorf("direct handler body is missing %q, which the transcoder emits", key)
 		}
 	}
-	if len(created) != len(updated) {
-		t.Errorf("direct handler emits %d fields, transcoder %d", len(created), len(updated))
+	if len(replaced) != len(updated) {
+		t.Errorf("direct handler emits %d fields, transcoder %d", len(replaced), len(updated))
 	}
 }
 
@@ -231,7 +187,7 @@ func TestUpdateFileWithoutFieldsChecksOwner(t *testing.T) {
 	svc, otherID := newListService(t, 0)
 
 	ctx := auth.ContextWithUserID(t.Context(), "1")
-	_, err := svc.UpdateFile(ctx, connect.NewRequest(&stashyv1.UpdateFileRequest{Id: otherID}))
+	_, err := svc.UpdateFile(ctx, &stashyv1.UpdateFileRequest{Id: otherID})
 	if connect.CodeOf(err) != connect.CodePermissionDenied {
 		t.Fatalf("code = %v, want %v", connect.CodeOf(err), connect.CodePermissionDenied)
 	}
@@ -239,8 +195,8 @@ func TestUpdateFileWithoutFieldsChecksOwner(t *testing.T) {
 
 func TestGetFileREST(t *testing.T) {
 	svc, otherID := newListService(t, 0)
-	own := createTestFile(t, svc.db, "1")
-	transcoder := newTestTranscoder(t, svc)
+	own := putTestFile(t, svc.db, svc.store, "1", "text/plain", "x")
+	transcoder := newTestHandler(t, svc)
 
 	rec := serveAs(transcoder, "1", httptest.NewRequest(http.MethodGet, "/v1/files/"+own.ID, nil))
 	if rec.Code != http.StatusOK {
@@ -259,34 +215,11 @@ func TestGetFileREST(t *testing.T) {
 	}
 }
 
-func TestHTTPGetFileContentChecksOwner(t *testing.T) {
-	svc, id := newTestService(t, memory.New(), "text/plain", "hello")
-
-	for _, tc := range []struct {
-		owner, id string
-		want      int
-	}{
-		{"1", id, http.StatusOK},
-		{"2", id, http.StatusForbidden},
-		{"1", "AAAAAAAAAAAAAAAAAAAAA", http.StatusNotFound},
-	} {
-		req := httptest.NewRequest(http.MethodGet, "/v1/files/"+tc.id+"/content", nil)
-		req.SetPathValue("id", tc.id)
-		rec := serveAs(http.HandlerFunc(svc.HTTPGetFileContent), tc.owner, req)
-		if rec.Code != tc.want {
-			t.Errorf("owner %s, id %s: status = %d, want %d", tc.owner, tc.id, rec.Code, tc.want)
-		}
-		if tc.want == http.StatusOK && rec.Body.String() != "hello" {
-			t.Errorf("body = %q, want hello", rec.Body)
-		}
-	}
-}
-
 // TestConnectGetForReads checks that side-effect-free RPCs accept Connect GET
 // requests through the transcoder.
 func TestConnectGetForReads(t *testing.T) {
 	svc, _ := newListService(t, 1)
-	transcoder := newTestTranscoder(t, svc)
+	transcoder := newTestHandler(t, svc)
 
 	var methods []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -295,15 +228,15 @@ func TestConnectGetForReads(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	client := stashyv1connect.NewFileServiceClient(srv.Client(), srv.URL, connect.WithHTTPGet(), connect.WithProtoJSON())
-	resp, err := client.ListFiles(t.Context(), connect.NewRequest(&stashyv1.ListFilesRequest{}))
+	client := stashyv1connect.NewFileServiceClient(connect.NewClient(connecthttp.NewTransport(srv.Client(), srv.URL, connecthttp.WithReadMaxBytes(0), connecthttp.WithHTTPGet(), connecthttp.WithProtoJSON())))
+	resp, err := client.ListFiles(t.Context(), &stashyv1.ListFilesRequest{})
 	if err != nil {
 		t.Fatalf("ListFiles: %v", err)
 	}
-	if len(resp.Msg.Files) != 1 {
-		t.Fatalf("got %d files, want 1", len(resp.Msg.Files))
+	if len(resp.Files) != 1 {
+		t.Fatalf("got %d files, want 1", len(resp.Files))
 	}
-	if _, err := client.GetFile(t.Context(), connect.NewRequest(&stashyv1.GetFileRequest{Id: resp.Msg.Files[0].Id})); err != nil {
+	if _, err := client.GetFile(t.Context(), &stashyv1.GetFileRequest{Id: resp.Files[0].Id}); err != nil {
 		t.Fatalf("GetFile: %v", err)
 	}
 	if len(methods) != 2 || methods[0] != http.MethodGet || methods[1] != http.MethodGet {
@@ -313,12 +246,12 @@ func TestConnectGetForReads(t *testing.T) {
 
 func TestFileNames(t *testing.T) {
 	svc, _ := newListService(t, 0)
-	transcoder := newTestTranscoder(t, svc)
+	transcoder := newTestHandler(t, svc)
 
 	// Upload with a name and slug, as the desktop client does.
 	req := httptest.NewRequest(http.MethodPost, "/v1/files?slug=q3-report.pdf&name="+url.QueryEscape("Quarterly report.pdf"), strings.NewReader("%PDF"))
 	req.Header.Set("Content-Type", "application/pdf")
-	rec := serveAs(http.HandlerFunc(svc.HTTPCreateFile), "1", req)
+	rec := serveAs(transcoder, "1", req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("create: status %d; body: %s", rec.Code, rec.Body)
 	}
@@ -335,7 +268,7 @@ func TestFileNames(t *testing.T) {
 	download := func() string {
 		req := httptest.NewRequest(http.MethodGet, "/v1/files/"+id+"/content", nil)
 		req.SetPathValue("id", id)
-		return serveAs(http.HandlerFunc(svc.HTTPGetFileContent), "1", req).Header().Get("Content-Disposition")
+		return serveAs(http.HandlerFunc(svc.httpGetFileContent), "1", req).Header().Get("Content-Disposition")
 	}
 	if cd := download(); cd != `inline; filename="Quarterly report.pdf"` {
 		t.Fatalf("Content-Disposition = %q", cd)
@@ -376,7 +309,7 @@ func TestFileNames(t *testing.T) {
 	} {
 		req := httptest.NewRequest(http.MethodPost, "/v1/files?"+bad, strings.NewReader("x"))
 		req.Header.Set("Content-Type", "text/plain")
-		if rec := serveAs(http.HandlerFunc(svc.HTTPCreateFile), "1", req); rec.Code != http.StatusBadRequest {
+		if rec := serveAs(transcoder, "1", req); rec.Code != http.StatusBadRequest {
 			t.Errorf("create with %s: status %d, want 400", bad, rec.Code)
 		}
 	}
@@ -384,12 +317,12 @@ func TestFileNames(t *testing.T) {
 
 func TestFileVisibility(t *testing.T) {
 	svc, _ := newListService(t, 0)
-	transcoder := newTestTranscoder(t, svc)
+	transcoder := newTestHandler(t, svc)
 
 	create := func(query string) *httptest.ResponseRecorder {
 		req := httptest.NewRequest(http.MethodPost, "/v1/files"+query, strings.NewReader("x"))
 		req.Header.Set("Content-Type", "text/plain")
-		return serveAs(http.HandlerFunc(svc.HTTPCreateFile), "1", req)
+		return serveAs(transcoder, "1", req)
 	}
 	visibilityOf := func(rec *httptest.ResponseRecorder) (string, string) {
 		t.Helper()
@@ -427,87 +360,5 @@ func TestFileVisibility(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	if rec := serveAs(transcoder, "1", req); rec.Code != http.StatusBadRequest {
 		t.Fatalf("PATCH with empty visibility: status %d, want 400", rec.Code)
-	}
-}
-
-func TestChecksumETagAndConditionalRequests(t *testing.T) {
-	svc, _ := newListService(t, 0)
-
-	// Upload: the response carries the checksum and an ETag.
-	req := httptest.NewRequest(http.MethodPost, "/v1/files", strings.NewReader("hello"))
-	req.Header.Set("Content-Type", "text/plain")
-	rec := serveAs(http.HandlerFunc(svc.HTTPCreateFile), "1", req)
-	var created map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &created); err != nil {
-		t.Fatalf("create: %v; body: %s", err, rec.Body)
-	}
-	id := created["id"].(string)
-	if created["checksum"] != "mnG7TA==" || rec.Header().Get("ETag") != `"mnG7TA=="` {
-		t.Fatalf("create: checksum %v, ETag %q", created["checksum"], rec.Header().Get("ETag"))
-	}
-
-	get := func(method, ifNoneMatch string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(method, "/v1/files/"+id+"/content", nil)
-		req.SetPathValue("id", id)
-		if ifNoneMatch != "" {
-			req.Header.Set("If-None-Match", ifNoneMatch)
-		}
-		return serveAs(http.HandlerFunc(svc.HTTPGetFileContent), "1", req)
-	}
-	put := func(ifMatch, body string) *httptest.ResponseRecorder {
-		req := httptest.NewRequest(http.MethodPut, "/v1/files/"+id+"/content", strings.NewReader(body))
-		req.SetPathValue("id", id)
-		req.Header.Set("Content-Type", "text/plain")
-		if ifMatch != "" {
-			req.Header.Set("If-Match", ifMatch)
-		}
-		return serveAs(http.HandlerFunc(svc.HTTPUpdateFileContent), "1", req)
-	}
-
-	// Download: ETag, and 304 when the client already has this version.
-	if rec := get(http.MethodGet, ""); rec.Code != http.StatusOK || rec.Header().Get("ETag") != `"mnG7TA=="` || rec.Body.String() != "hello" {
-		t.Fatalf("GET: %d, ETag %q, body %q", rec.Code, rec.Header().Get("ETag"), rec.Body)
-	}
-	for _, inm := range []string{`"mnG7TA=="`, `W/"mnG7TA=="`, `"other", "mnG7TA=="`, "*"} {
-		if rec := get(http.MethodGet, inm); rec.Code != http.StatusNotModified || rec.Body.Len() != 0 {
-			t.Errorf("GET If-None-Match %s: %d with %d body bytes, want 304 and none", inm, rec.Code, rec.Body.Len())
-		}
-	}
-	if rec := get(http.MethodHead, `"mnG7TA=="`); rec.Code != http.StatusNotModified {
-		t.Errorf("HEAD If-None-Match: %d, want 304", rec.Code)
-	}
-	if rec := get(http.MethodGet, `"stale=="`); rec.Code != http.StatusOK {
-		t.Errorf("GET with a stale If-None-Match: %d, want 200", rec.Code)
-	}
-
-	// Conditional update: a stale or weak tag is rejected without writing.
-	for _, stale := range []string{`"stale=="`, `W/"mnG7TA=="`} {
-		if rec := put(stale, "lost update"); rec.Code != http.StatusPreconditionFailed {
-			t.Errorf("PUT If-Match %s: %d, want 412", stale, rec.Code)
-		}
-	}
-	if rec := get(http.MethodGet, ""); rec.Body.String() != "hello" {
-		t.Fatalf("content changed by a rejected PUT: %q", rec.Body)
-	}
-
-	// The current tag succeeds and returns the new ETag.
-	rec = put(`"mnG7TA=="`, "hello, world")
-	if rec.Code != http.StatusOK {
-		t.Fatalf("PUT If-Match current: %d; body: %s", rec.Code, rec.Body)
-	}
-	newTag := rec.Header().Get("ETag")
-	if newTag == "" || newTag == `"mnG7TA=="` {
-		t.Fatalf("PUT: ETag %q, want a new tag", newTag)
-	}
-	if rec := get(http.MethodGet, ""); rec.Header().Get("ETag") != newTag || rec.Body.String() != "hello, world" {
-		t.Fatalf("after PUT: ETag %q, body %q", rec.Header().Get("ETag"), rec.Body)
-	}
-
-	// "*" and no If-Match at all are unconditional.
-	if rec := put("*", "star"); rec.Code != http.StatusOK {
-		t.Errorf("PUT If-Match *: %d, want 200", rec.Code)
-	}
-	if rec := put("", "plain"); rec.Code != http.StatusOK {
-		t.Errorf("PUT without If-Match: %d, want 200", rec.Code)
 	}
 }

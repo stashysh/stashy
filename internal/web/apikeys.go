@@ -1,28 +1,11 @@
-package auth
+package web
 
 import (
 	"encoding/json"
 	"net/http"
-
-	"github.com/stashysh/stashy/internal/db"
 )
 
-type APIKeyHandler struct {
-	db       *db.DB
-	sessions *SessionManager
-}
-
-func NewAPIKeyHandler(database *db.DB, sessions *SessionManager) *APIKeyHandler {
-	return &APIKeyHandler{db: database, sessions: sessions}
-}
-
-func (h *APIKeyHandler) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /auth/keys", h.handleCreate)
-	mux.HandleFunc("GET /auth/keys", h.handleList)
-	mux.HandleFunc("DELETE /auth/keys/{id}", h.handleDelete)
-}
-
-func (h *APIKeyHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) createKey(w http.ResponseWriter, r *http.Request) {
 	userID, ok := h.sessions.GetUserID(r)
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -50,7 +33,7 @@ func (h *APIKeyHandler) handleCreate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (h *APIKeyHandler) handleList(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) listKeys(w http.ResponseWriter, r *http.Request) {
 	userID, ok := h.sessions.GetUserID(r)
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -84,7 +67,7 @@ func (h *APIKeyHandler) handleList(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
-func (h *APIKeyHandler) handleDelete(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) deleteKey(w http.ResponseWriter, r *http.Request) {
 	userID, ok := h.sessions.GetUserID(r)
 	if !ok {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)

@@ -41,7 +41,7 @@ func (s *Storage) Get(ctx context.Context, id string) (io.ReadCloser, error) {
 	r, err := s.bucket.Object(id).NewReader(ctx)
 	if err != nil {
 		if errors.Is(err, gcstorage.ErrObjectNotExist) {
-			return nil, fmt.Errorf("file not found: %s", id)
+			return nil, fmt.Errorf("%w: %s", storage.ErrNotFound, id)
 		}
 		return nil, fmt.Errorf("opening GCS reader: %w", err)
 	}
@@ -52,7 +52,7 @@ func (s *Storage) GetRange(ctx context.Context, id string, start, length int64) 
 	r, err := s.bucket.Object(id).NewRangeReader(ctx, start, length)
 	if err != nil {
 		if errors.Is(err, gcstorage.ErrObjectNotExist) {
-			return nil, fmt.Errorf("file not found: %s", id)
+			return nil, fmt.Errorf("%w: %s", storage.ErrNotFound, id)
 		}
 		return nil, fmt.Errorf("opening GCS range reader: %w", err)
 	}

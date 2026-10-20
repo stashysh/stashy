@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -52,6 +53,22 @@ const (
 	VisibilityPrivate  = "private"  // only the owner
 	VisibilityInternal = "internal" // any signed-in user
 	VisibilityPublic   = "public"   // anyone
+)
+
+// Path is the file's canonical URL path: /{id}/{slug}, or /{id} when it has
+// no slug.
+func (f *File) Path() string {
+	if f.Slug != "" {
+		return "/" + f.ID + "/" + f.Slug
+	}
+	return "/" + f.ID
+}
+
+var (
+	// ErrFileNotFound reports that no file has the requested id.
+	ErrFileNotFound = errors.New("file not found")
+	// ErrPermissionDenied reports that the file belongs to another user.
+	ErrPermissionDenied = errors.New("permission denied")
 )
 
 type DB struct {
@@ -273,7 +290,7 @@ func (d *DB) GetFile(ctx context.Context, id string) (*File, error) {
 	f, err := scanFile(d.sql.QueryRowContext(ctx, query, id))
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return nil, fmt.Errorf("file not found: %s", id)
+			return nil, fmt.Errorf("%w: %s", ErrFileNotFound, id)
 		}
 		return nil, fmt.Errorf("getting file: %w", err)
 	}
@@ -311,20 +328,19 @@ func (d *DB) ListFiles(ctx context.Context, owner string, limit int, afterCreate
 }
 
 // CheckFileOwner reports whether the file exists and is owned by owner,
-// with error messages matching the storage-layer conventions
-// ("file not found", "permission denied").
+// returning ErrFileNotFound or ErrPermissionDenied if not.
 func (d *DB) CheckFileOwner(ctx context.Context, id, owner string) error {
 	query := d.q(`SELECT owner_id FROM files WHERE id = ?`)
 	var got string
 	err := d.sql.QueryRowContext(ctx, query, id).Scan(&got)
 	if err == sql.ErrNoRows {
-		return fmt.Errorf("file not found: %s", id)
+		return fmt.Errorf("%w: %s", ErrFileNotFound, id)
 	}
 	if err != nil {
 		return fmt.Errorf("getting file owner: %w", err)
 	}
 	if got != owner {
-		return fmt.Errorf("permission denied")
+		return ErrPermissionDenied
 	}
 	return nil
 }
@@ -354,7 +370,6 @@ func (d *DB) SetFileVisibility(ctx context.Context, id, owner, visibility string
 	return nil
 }
 
-// SetFileSlug sets the file's slug, or clears it when slug is empty.
 // SetFileName sets a file's original filename; empty clears it.
 func (d *DB) SetFileName(ctx context.Context, id, owner, name string) error {
 	if err := d.CheckFileOwner(ctx, id, owner); err != nil {
@@ -367,6 +382,7 @@ func (d *DB) SetFileName(ctx context.Context, id, owner, name string) error {
 	return nil
 }
 
+// SetFileSlug sets the file's slug, or clears it when slug is empty.
 func (d *DB) SetFileSlug(ctx context.Context, id, owner, slug string) error {
 	if err := d.CheckFileOwner(ctx, id, owner); err != nil {
 		return err

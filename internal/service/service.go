@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"connectrpc.com/connect"
+	"connectrpc.com/connect/v2"
 	"google.golang.org/genproto/googleapis/api/httpbody"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
@@ -37,7 +37,7 @@ func New(store storage.Storage, database *db.DB, hostname string) *FileService {
 // validateContentType checks and normalizes the content type from an HttpBody.
 func validateContentType(ct string) (string, error) {
 	if strings.HasPrefix(ct, "multipart/") {
-		return "", connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("multipart uploads are not supported, use --data-binary with an explicit Content-Type header"))
+		return "", connect.Errorf(connect.CodeInvalidArgument, "multipart uploads are not supported, use --data-binary with an explicit Content-Type header")
 	}
 	if ct == "" {
 		return "application/octet-stream", nil
@@ -45,30 +45,21 @@ func validateContentType(ct string) (string, error) {
 	return ct, nil
 }
 
-// fileError maps a db/storage-layer error to the appropriate connect code.
 // errPreconditionFailed reports that an If-Match condition didn't hold.
 var errPreconditionFailed = errors.New("precondition failed: the file's content has changed")
 
+// fileError maps a db/storage-layer error to the appropriate connect code.
 func fileError(err error) error {
 	switch {
 	case errors.Is(err, errPreconditionFailed):
-		return connect.NewError(connect.CodeFailedPrecondition, err)
-	case strings.Contains(err.Error(), "not found"):
-		return connect.NewError(connect.CodeNotFound, err)
-	case strings.Contains(err.Error(), "permission denied"):
-		return connect.NewError(connect.CodePermissionDenied, err)
+		return connect.NewError(connect.CodeFailedPrecondition, err.Error()).WithCause(err)
+	case errors.Is(err, db.ErrFileNotFound), errors.Is(err, storage.ErrNotFound):
+		return connect.NewError(connect.CodeNotFound, err.Error()).WithCause(err)
+	case errors.Is(err, db.ErrPermissionDenied):
+		return connect.NewError(connect.CodePermissionDenied, err.Error()).WithCause(err)
 	default:
-		return connect.NewError(connect.CodeInternal, err)
+		return connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 	}
-}
-
-// canonicalURL builds the canonical public URL for a file, including its slug
-// when set.
-func (s *FileService) canonicalURL(f *db.File) string {
-	if f.Slug != "" {
-		return s.hostname + "/" + f.ID + "/" + f.Slug
-	}
-	return s.hostname + "/" + f.ID
 }
 
 // fileProto converts a metadata row to its API representation.
@@ -76,7 +67,7 @@ func (s *FileService) fileProto(f *db.File) *stashyv1.File {
 	return &stashyv1.File{
 		Id:          f.ID,
 		Name:        f.Name,
-		Url:         s.canonicalURL(f),
+		Url:         s.hostname + f.Path(),
 		ContentType: f.ContentType,
 		Size:        f.Size,
 		Checksum:    f.Checksum,
@@ -140,15 +131,21 @@ func (s *FileService) replaceFile(ctx context.Context, id, owner, contentType, i
 
 func (s *FileService) CreateFile(
 	ctx context.Context,
-	stream *connect.ClientStream[stashyv1.CreateFileRequest],
-) (*connect.Response[stashyv1.CreateFileResponse], error) {
+	stream stashyv1connect.FileServiceCreateFileServerStream,
+) (*stashyv1.CreateFileResponse, error) {
 	owner, _ := auth.UserIDFromContext(ctx)
 
 	// Read first chunk to get content type, slug, name, and visibility.
 	var contentType, slug, name, visibility string
 	var firstData []byte
-	for stream.Receive() {
-		msg := stream.Msg()
+	for {
+		msg, err := stream.Receive()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
 		if msg.Slug != nil {
 			slug = *msg.Slug
 		}
@@ -168,9 +165,6 @@ func (s *FileService) CreateFile(
 		contentType = ct
 		firstData = msg.Content.Data
 		break
-	}
-	if err := stream.Err(); err != nil {
-		return nil, err
 	}
 
 	pr, pw := io.Pipe()
@@ -192,56 +186,68 @@ func (s *FileService) CreateFile(
 		if _, err := pw.Write(firstData); err != nil {
 			pw.Close()
 			<-done
-			return nil, connect.NewError(connect.CodeInternal, err)
+			return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 		}
 	}
 
-	for stream.Receive() {
-		msg := stream.Msg()
+	for {
+		msg, err := stream.Receive()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			pw.CloseWithError(err)
+			<-done
+			return nil, err
+		}
 		if msg.Content == nil {
 			continue
 		}
 		if _, err := pw.Write(msg.Content.Data); err != nil {
 			pw.Close()
 			<-done
-			return nil, connect.NewError(connect.CodeInternal, err)
+			return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 		}
-	}
-	if err := stream.Err(); err != nil {
-		pw.CloseWithError(err)
-		<-done
-		return nil, err
 	}
 
 	pw.Close()
 	<-done
 
 	if putResult.err != nil {
-		return nil, connect.NewError(connect.CodeInternal, putResult.err)
+		log.Printf("CreateFile: %v", putResult.err)
+		return nil, connect.NewError(connect.CodeInternal, "internal error").WithCause(putResult.err)
 	}
 
-	return connect.NewResponse(&stashyv1.CreateFileResponse{
+	// Over REST, Vanguard copies response metadata onto the HTTP headers.
+	if info, ok := connect.CallInfoForServerContext(ctx); ok && putResult.file.Checksum != "" {
+		info.ResponseHeader().Set("ETag", etag(putResult.file.Checksum))
+	}
+
+	return &stashyv1.CreateFileResponse{
 		File: s.fileProto(putResult.file),
-	}), nil
+	}, nil
 }
 
 func (s *FileService) UpdateFileContent(
 	ctx context.Context,
-	stream *connect.ClientStream[stashyv1.UpdateFileContentRequest],
-) (*connect.Response[stashyv1.UpdateFileContentResponse], error) {
+	stream stashyv1connect.FileServiceUpdateFileContentServerStream,
+) (*stashyv1.UpdateFileContentResponse, error) {
 	owner, ok := auth.UserIDFromContext(ctx)
 	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+		return nil, connect.Errorf(connect.CodeUnauthenticated, "authentication required")
 	}
 
 	// First message contains both id (from path) and file data (from body).
-	if !stream.Receive() {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("file id is required"))
+	msg, err := stream.Receive()
+	if errors.Is(err, io.EOF) {
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "file id is required")
 	}
-	msg := stream.Msg()
+	if err != nil {
+		return nil, err
+	}
 	id := msg.Id
 	if id == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("file id is required"))
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "file id is required")
 	}
 
 	var ct string
@@ -275,25 +281,28 @@ func (s *FileService) UpdateFileContent(
 		if _, err := pw.Write(firstData); err != nil {
 			pw.Close()
 			<-done
-			return nil, connect.NewError(connect.CodeInternal, err)
+			return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 		}
 	}
 
-	for stream.Receive() {
-		msg := stream.Msg()
+	for {
+		msg, err := stream.Receive()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			pw.CloseWithError(err)
+			<-done
+			return nil, err
+		}
 		if msg.Content == nil {
 			continue
 		}
 		if _, err := pw.Write(msg.Content.Data); err != nil {
 			pw.Close()
 			<-done
-			return nil, connect.NewError(connect.CodeInternal, err)
+			return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 		}
-	}
-	if err := stream.Err(); err != nil {
-		pw.CloseWithError(err)
-		<-done
-		return nil, err
 	}
 
 	pw.Close()
@@ -303,40 +312,40 @@ func (s *FileService) UpdateFileContent(
 		return nil, fileError(updateErr)
 	}
 
-	return connect.NewResponse(&stashyv1.UpdateFileContentResponse{
+	return &stashyv1.UpdateFileContentResponse{
 		File: s.fileProto(updated),
-	}), nil
+	}, nil
 }
 
 // UpdateFile updates a file's mutable fields. Currently only the slug.
 func (s *FileService) UpdateFile(
 	ctx context.Context,
-	req *connect.Request[stashyv1.UpdateFileRequest],
-) (*connect.Response[stashyv1.UpdateFileResponse], error) {
+	req *stashyv1.UpdateFileRequest,
+) (*stashyv1.UpdateFileResponse, error) {
 	owner, ok := auth.UserIDFromContext(ctx)
 	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+		return nil, connect.Errorf(connect.CodeUnauthenticated, "authentication required")
 	}
 
-	id := req.Msg.Id
+	id := req.Id
 	if id == "" {
-		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("file id is required"))
+		return nil, connect.Errorf(connect.CodeInvalidArgument, "file id is required")
 	}
 
 	// A nil slug means "leave unchanged"; an empty string clears it. The slug
 	// format is enforced by the protovalidate interceptor.
-	if req.Msg.Slug != nil {
-		if err := s.db.SetFileSlug(ctx, id, owner, *req.Msg.Slug); err != nil {
+	if req.Slug != nil {
+		if err := s.db.SetFileSlug(ctx, id, owner, *req.Slug); err != nil {
 			return nil, fileError(err)
 		}
 	}
-	if req.Msg.Name != nil {
-		if err := s.db.SetFileName(ctx, id, owner, *req.Msg.Name); err != nil {
+	if req.Name != nil {
+		if err := s.db.SetFileName(ctx, id, owner, *req.Name); err != nil {
 			return nil, fileError(err)
 		}
 	}
-	if req.Msg.Visibility != nil {
-		if err := s.db.SetFileVisibility(ctx, id, owner, *req.Msg.Visibility); err != nil {
+	if req.Visibility != nil {
+		if err := s.db.SetFileVisibility(ctx, id, owner, *req.Visibility); err != nil {
 			return nil, fileError(err)
 		}
 	}
@@ -347,29 +356,29 @@ func (s *FileService) UpdateFile(
 		return nil, fileError(err)
 	}
 
-	return connect.NewResponse(&stashyv1.UpdateFileResponse{
+	return &stashyv1.UpdateFileResponse{
 		File: s.fileProto(f),
-	}), nil
+	}, nil
 }
 
 func (s *FileService) DeleteFile(
 	ctx context.Context,
-	req *connect.Request[stashyv1.DeleteFileRequest],
-) (*connect.Response[stashyv1.DeleteFileResponse], error) {
+	req *stashyv1.DeleteFileRequest,
+) (*stashyv1.DeleteFileResponse, error) {
 	owner, ok := auth.UserIDFromContext(ctx)
 	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+		return nil, connect.Errorf(connect.CodeUnauthenticated, "authentication required")
 	}
 
-	if err := s.db.DeleteFile(ctx, req.Msg.Id, owner); err != nil {
+	if err := s.db.DeleteFile(ctx, req.Id, owner); err != nil {
 		return nil, fileError(err)
 	}
 	// The row is gone, so the file is already unreachable; leftover bytes
 	// from a failed delete are orphans, not corruption.
-	if err := s.store.Delete(ctx, req.Msg.Id); err != nil {
-		log.Printf("deleting bytes for %s: %v", req.Msg.Id, err)
+	if err := s.store.Delete(ctx, req.Id); err != nil {
+		log.Printf("deleting bytes for %s: %v", req.Id, err)
 	}
-	return connect.NewResponse(&stashyv1.DeleteFileResponse{}), nil
+	return &stashyv1.DeleteFileResponse{}, nil
 }
 
 const defaultListLimit = 50
@@ -378,95 +387,92 @@ const defaultListLimit = 50
 // cursor is a file id; its created_at anchors the keyset query.
 func (s *FileService) ListFiles(
 	ctx context.Context,
-	req *connect.Request[stashyv1.ListFilesRequest],
-) (*connect.Response[stashyv1.ListFilesResponse], error) {
+	req *stashyv1.ListFilesRequest,
+) (*stashyv1.ListFilesResponse, error) {
 	owner, ok := auth.UserIDFromContext(ctx)
 	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+		return nil, connect.Errorf(connect.CodeUnauthenticated, "authentication required")
 	}
 
 	limit := defaultListLimit
-	if req.Msg.Limit != nil {
-		limit = int(*req.Msg.Limit)
+	if req.Limit != nil {
+		limit = int(*req.Limit)
 	}
 
 	var afterTime time.Time
 	var afterID string
-	if req.Msg.After != nil {
+	if req.After != nil {
 		// A missing or foreign cursor file is reported the same way so the
 		// response doesn't reveal whether another user's id exists.
-		f, err := s.db.GetFile(ctx, *req.Msg.After)
-		if err != nil && !strings.Contains(err.Error(), "not found") {
-			return nil, connect.NewError(connect.CodeInternal, err)
+		f, err := s.db.GetFile(ctx, *req.After)
+		if err != nil && !errors.Is(err, db.ErrFileNotFound) {
+			return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 		}
 		if err != nil || f.Owner != owner {
-			return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("after: file not found"))
+			return nil, connect.Errorf(connect.CodeInvalidArgument, "after: file not found")
 		}
 		afterTime, afterID = f.CreatedAt, f.ID
 	}
 
 	files, err := s.db.ListFiles(ctx, owner, limit, afterTime, afterID)
 	if err != nil {
-		return nil, connect.NewError(connect.CodeInternal, err)
+		return nil, connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 	}
 
 	resp := &stashyv1.ListFilesResponse{Files: make([]*stashyv1.File, 0, len(files))}
 	for i := range files {
 		resp.Files = append(resp.Files, s.fileProto(&files[i]))
 	}
-	return connect.NewResponse(resp), nil
+	return resp, nil
 }
 
-// ownedFile returns id's metadata row if owner owns it, with errors matching
-// the db-layer conventions ("file not found", "permission denied").
+// ownedFile returns id's metadata row if owner owns it, or an error wrapping
+// db.ErrFileNotFound or db.ErrPermissionDenied.
 func (s *FileService) ownedFile(ctx context.Context, id, owner string) (*db.File, error) {
 	f, err := s.db.GetFile(ctx, id)
 	if err != nil {
 		return nil, err
 	}
 	if f.Owner != owner {
-		return nil, fmt.Errorf("permission denied")
+		return nil, db.ErrPermissionDenied
 	}
 	return f, nil
 }
 
 func (s *FileService) GetFile(
 	ctx context.Context,
-	req *connect.Request[stashyv1.GetFileRequest],
-) (*connect.Response[stashyv1.GetFileResponse], error) {
+	req *stashyv1.GetFileRequest,
+) (*stashyv1.GetFileResponse, error) {
 	owner, ok := auth.UserIDFromContext(ctx)
 	if !ok {
-		return nil, connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+		return nil, connect.Errorf(connect.CodeUnauthenticated, "authentication required")
 	}
 
-	f, err := s.ownedFile(ctx, req.Msg.Id, owner)
+	f, err := s.ownedFile(ctx, req.Id, owner)
 	if err != nil {
 		return nil, fileError(err)
 	}
-	return connect.NewResponse(&stashyv1.GetFileResponse{File: s.fileProto(f)}), nil
+	return &stashyv1.GetFileResponse{File: s.fileProto(f)}, nil
 }
 
 func (s *FileService) GetFileContent(
 	ctx context.Context,
-	req *connect.Request[stashyv1.GetFileContentRequest],
-	stream *connect.ServerStream[stashyv1.GetFileContentResponse],
+	req *stashyv1.GetFileContentRequest,
+	stream stashyv1connect.FileServiceGetFileContentServerStream,
 ) error {
 	owner, ok := auth.UserIDFromContext(ctx)
 	if !ok {
-		return connect.NewError(connect.CodeUnauthenticated, fmt.Errorf("authentication required"))
+		return connect.Errorf(connect.CodeUnauthenticated, "authentication required")
 	}
 
-	f, err := s.ownedFile(ctx, req.Msg.Id, owner)
+	f, err := s.ownedFile(ctx, req.Id, owner)
 	if err != nil {
 		return fileError(err)
 	}
 
-	rc, err := s.store.Get(ctx, req.Msg.Id)
+	rc, err := s.store.Get(ctx, req.Id)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return connect.NewError(connect.CodeNotFound, err)
-		}
-		return connect.NewError(connect.CodeInternal, err)
+		return fileError(err)
 	}
 	defer rc.Close()
 
@@ -486,14 +492,14 @@ func (s *FileService) GetFileContent(
 				first = false
 			}
 			if err := stream.Send(chunk); err != nil {
-				return connect.NewError(connect.CodeInternal, err)
+				return connect.NewError(connect.CodeInternal, err.Error()).WithCause(err)
 			}
 		}
 		if readErr == io.EOF {
 			return nil
 		}
 		if readErr != nil {
-			return connect.NewError(connect.CodeInternal, readErr)
+			return connect.NewError(connect.CodeInternal, readErr.Error()).WithCause(readErr)
 		}
 	}
 }
