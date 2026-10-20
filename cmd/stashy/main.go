@@ -172,7 +172,7 @@ func cmdServe(migrate bool) {
 
 	svc := service.New(store, database, hostname)
 
-	webUI := web.NewHandler(database, sessions, hostname, Version)
+	webUI := web.NewHandler(database, sessions, svc, hostname, Version)
 
 	mux := http.NewServeMux()
 

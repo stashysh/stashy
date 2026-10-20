@@ -1,6 +1,15 @@
 {{define "content"}}
-<div class="mb-8">
+<div class="mb-8 flex flex-wrap items-center justify-between gap-4">
   <h2 class="text-2xl font-bold text-gray-900 tracking-tight text-balance">Files</h2>
+  <div class="flex items-center gap-3">
+    <input type="file" id="upload-input" class="hidden">
+    <button type="button" id="upload-button"
+      class="rounded-md bg-brand-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-brand-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-brand-500">Upload</button>
+  </div>
+</div>
+<div id="upload-status" role="status" class="hidden mb-6 rounded-lg border px-4 py-3 text-sm"></div>
+<div id="drop-overlay" aria-hidden="true" class="hidden fixed inset-0 z-40 flex items-center justify-center bg-brand-50/90 border-4 border-dashed border-brand-500 pointer-events-none">
+  <p class="text-lg font-semibold text-brand-800">Drop a file to upload it</p>
 </div>
 <div class="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
   {{if .Files}}
@@ -62,7 +71,7 @@
     <svg aria-hidden="true" class="mx-auto h-12 w-12 text-gray-300 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
     </svg>
-    <p class="mb-4">No files yet. Upload one with the API:</p>
+    <p class="mb-4">No files yet. Upload one above, drop it here, or use the API:</p>
     <pre class="inline-block text-left text-xs bg-gray-900 text-gray-100 rounded-lg px-4 py-3 overflow-x-auto max-w-full"><code>curl -X POST {{.Hostname}}/v1/files \
   -H "Authorization: Bearer YOUR_API_KEY" \
   -H "Content-Type: image/png" \
@@ -86,5 +95,80 @@
       btn.title = 'Copy URL';
     }, 2000);
   }
+
+  const uploadInput = document.getElementById('upload-input');
+  const uploadButton = document.getElementById('upload-button');
+  const uploadStatus = document.getElementById('upload-status');
+
+  uploadButton.addEventListener('click', () => uploadInput.click());
+  uploadInput.addEventListener('change', () => {
+    if (uploadInput.files[0]) uploadFile(uploadInput.files[0]);
+    uploadInput.value = '';
+  });
+
+  function showUploadStatus(text, isError) {
+    uploadStatus.textContent = text;
+    uploadStatus.className = 'mb-6 rounded-lg border px-4 py-3 text-sm ' +
+      (isError ? 'border-red-200 bg-red-50 text-red-800' : 'border-brand-200 bg-brand-50 text-brand-800');
+  }
+
+  function uploadFile(file) {
+    const params = new URLSearchParams({ name: file.name });
+
+    // XMLHttpRequest rather than fetch, which can't report upload progress.
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/upload?' + params);
+    xhr.setRequestHeader('Content-Type', file.type || 'application/octet-stream');
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) showUploadStatus(`Uploading ${file.name}… ${Math.round(e.loaded / e.total * 100)}%`);
+    };
+    xhr.onload = () => {
+      if (xhr.status === 200) {
+        location.href = '/'; // the newest file is first on the first page
+        return;
+      }
+      let message = xhr.responseText.trim();
+      try { message = JSON.parse(xhr.responseText).message || message; } catch {}
+      showUploadStatus(`Couldn't upload ${file.name}: ${message || 'status ' + xhr.status}`, true);
+      uploadButton.disabled = false;
+    };
+    xhr.onerror = () => {
+      showUploadStatus(`Couldn't upload ${file.name}: network error`, true);
+      uploadButton.disabled = false;
+    };
+    uploadButton.disabled = true;
+    showUploadStatus(`Uploading ${file.name}…`);
+    xhr.send(file);
+  }
+
+  // Dropping a file anywhere on the page uploads it. dragenter and dragleave
+  // fire for every child element, so count them to know when the drag leaves.
+  const dropOverlay = document.getElementById('drop-overlay');
+  const hasFiles = (e) => [...e.dataTransfer.types].includes('Files');
+  let dragDepth = 0;
+  window.addEventListener('dragenter', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth++;
+    dropOverlay.classList.remove('hidden');
+  });
+  window.addEventListener('dragover', (e) => {
+    if (hasFiles(e)) e.preventDefault();
+  });
+  window.addEventListener('dragleave', (e) => {
+    if (!hasFiles(e)) return;
+    if (--dragDepth <= 0) {
+      dragDepth = 0;
+      dropOverlay.classList.add('hidden');
+    }
+  });
+  window.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth = 0;
+    dropOverlay.classList.add('hidden');
+    if (uploadButton.disabled) return; // one upload at a time
+    if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0]);
+  });
 </script>
 {{end}}

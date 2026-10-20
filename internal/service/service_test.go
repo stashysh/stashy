@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -15,6 +16,7 @@ import (
 	stashyv1 "github.com/stashysh/stashy/gen/stashy/v1"
 	"github.com/stashysh/stashy/gen/stashy/v1/stashyv1connect"
 	"github.com/stashysh/stashy/internal/auth"
+	"github.com/stashysh/stashy/internal/db"
 	"github.com/stashysh/stashy/internal/storage/memory"
 )
 
@@ -360,5 +362,38 @@ func TestFileVisibility(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	if rec := serveAs(transcoder, "1", req); rec.Code != http.StatusBadRequest {
 		t.Fatalf("PATCH with empty visibility: status %d, want 400", rec.Code)
+	}
+}
+
+// TestUploadFile checks that UploadFile stores a file for the given owner and
+// applies the same metadata rules as CreateFile.
+func TestUploadFile(t *testing.T) {
+	svc, _ := newListService(t, 0)
+
+	upload := func(meta db.File) (*db.File, error) {
+		meta.Owner = "1"
+		return svc.UploadFile(t.Context(), meta, strings.NewReader("hello"))
+	}
+
+	f, err := upload(db.File{Slug: "notes.txt", Name: "notes.txt", Visibility: db.VisibilityPrivate, ContentType: "text/plain"})
+	if err != nil {
+		t.Fatalf("UploadFile: %v", err)
+	}
+	if f.Owner != "1" || f.Size != 5 || f.Checksum != "mnG7TA==" || f.Visibility != db.VisibilityPrivate || f.Path() != "/"+f.ID+"/notes.txt" {
+		t.Fatalf("UploadFile = %+v", f)
+	}
+	if f, err := upload(db.File{}); err != nil || f.ContentType != "application/octet-stream" {
+		t.Fatalf("UploadFile without metadata = %+v, %v; want octet-stream", f, err)
+	}
+
+	for name, meta := range map[string]db.File{
+		"slug":         {Slug: "has spaces"},
+		"name":         {Name: "a/b.txt"},
+		"visibility":   {Visibility: "everyone"},
+		"content type": {ContentType: "multipart/form-data; boundary=x"},
+	} {
+		if _, err := upload(meta); !errors.Is(err, ErrInvalidUpload) {
+			t.Errorf("bad %s: err = %v, want ErrInvalidUpload", name, err)
+		}
 	}
 }
