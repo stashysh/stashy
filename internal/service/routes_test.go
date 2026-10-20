@@ -44,6 +44,13 @@ func TestMountRequiresAPIKey(t *testing.T) {
 			mux.ServeHTTP(rec, req)
 			if rec.Code != http.StatusUnauthorized {
 				t.Errorf("%s %s with Authorization %q: status = %d, want 401", tc.method, tc.path, header, rec.Code)
+				continue
+			}
+			// MCP answers in the SDK's own form; the rest share the API's.
+			if tc.path != "/mcp" {
+				if code, _ := apiErrorBody(t, rec); code != 16 {
+					t.Errorf("%s %s with Authorization %q: code = %d, want 16", tc.method, tc.path, header, code)
+				}
 			}
 		}
 	}

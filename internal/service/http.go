@@ -1,10 +1,12 @@
 package service
 
 import (
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
 
+	"connectrpc.com/connect/v2"
 	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/stashysh/stashy/internal/auth"
@@ -17,7 +19,7 @@ import (
 func (s *FileService) httpGetFileContent(w http.ResponseWriter, r *http.Request) {
 	owner, ok := auth.UserIDFromContext(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		apiError(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
@@ -26,7 +28,7 @@ func (s *FileService) httpGetFileContent(w http.ResponseWriter, r *http.Request)
 		writeHTTPError(w, r, "httpGetFileContent", err)
 		return
 	}
-	s.ServeFile(w, r, id)
+	s.ServeFile(w, r, id, apiError)
 }
 
 // httpUpdateFileContent handles PUT /v1/files/{id}/content directly, bypassing
@@ -34,19 +36,19 @@ func (s *FileService) httpGetFileContent(w http.ResponseWriter, r *http.Request)
 func (s *FileService) httpUpdateFileContent(w http.ResponseWriter, r *http.Request) {
 	owner, ok := auth.UserIDFromContext(r.Context())
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		apiError(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 
 	id := r.PathValue("id")
 	if id == "" {
-		http.Error(w, "id is required", http.StatusBadRequest)
+		apiError(w, "id is required", http.StatusBadRequest)
 		return
 	}
 
 	ct, err := validateContentType(r.Header.Get("Content-Type"))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		apiError(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -64,14 +66,14 @@ func (s *FileService) httpUpdateFileContent(w http.ResponseWriter, r *http.Reque
 func writeHTTPError(w http.ResponseWriter, r *http.Request, op string, err error) {
 	switch {
 	case errors.Is(err, errPreconditionFailed):
-		http.Error(w, err.Error(), http.StatusPreconditionFailed)
+		apiError(w, err.Error(), http.StatusPreconditionFailed)
 	case errors.Is(err, db.ErrFileNotFound):
-		http.NotFound(w, r)
+		apiError(w, err.Error(), http.StatusNotFound)
 	case errors.Is(err, db.ErrPermissionDenied):
-		http.Error(w, "permission denied", http.StatusForbidden)
+		apiError(w, "permission denied", http.StatusForbidden)
 	default:
 		log.Printf("%s %s: %v", op, r.PathValue("id"), err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		apiError(w, "internal error", http.StatusInternalServerError)
 	}
 }
 
@@ -85,7 +87,7 @@ func (s *FileService) writeFileJSON(w http.ResponseWriter, f *db.File) {
 	b, err := fileJSON.Marshal(s.fileProto(f))
 	if err != nil {
 		log.Printf("marshaling file %s: %v", f.ID, err)
-		http.Error(w, "internal error", http.StatusInternalServerError)
+		apiError(w, "internal error", http.StatusInternalServerError)
 		return
 	}
 	if f.Checksum != "" {
@@ -93,4 +95,40 @@ func (s *FileService) writeFileJSON(w http.ResponseWriter, f *db.File) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(b)
+}
+
+// apiError replies like http.Error, but with the JSON body Vanguard writes for
+// failed RPCs, such as {"code": 5, "message": "file not found: abc",
+// "details": []}, so every /v1/ endpoint fails the same way. code is the gRPC
+// code Vanguard maps to status.
+func apiError(w http.ResponseWriter, message string, status int) {
+	code := connect.CodeUnknown
+	switch status {
+	case http.StatusBadRequest:
+		code = connect.CodeInvalidArgument
+	case http.StatusUnauthorized:
+		code = connect.CodeUnauthenticated
+	case http.StatusForbidden:
+		code = connect.CodePermissionDenied
+	case http.StatusNotFound:
+		code = connect.CodeNotFound
+	case http.StatusPreconditionFailed:
+		code = connect.CodeFailedPrecondition
+	case http.StatusRequestedRangeNotSatisfiable:
+		code = connect.CodeOutOfRange
+	case http.StatusInternalServerError:
+		code = connect.CodeInternal
+	}
+
+	h := w.Header()
+	// Drop any length set for a body that is no longer being sent.
+	h.Del("Content-Length")
+	h.Set("Content-Type", "application/json")
+	h.Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(struct {
+		Code    int32  `json:"code"` // a number, not connect.Code's text form
+		Message string `json:"message"`
+		Details []any  `json:"details"`
+	}{int32(code), message, []any{}})
 }
