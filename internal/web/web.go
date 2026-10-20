@@ -12,6 +12,7 @@ import (
 
 	"github.com/stashysh/stashy/internal/auth"
 	"github.com/stashysh/stashy/internal/db"
+	"github.com/stashysh/stashy/internal/service"
 )
 
 //go:embed templates/*.html
@@ -20,6 +21,7 @@ var templateFS embed.FS
 type Handler struct {
 	db       *db.DB
 	sessions *auth.SessionManager
+	files    *service.FileService
 	hostname string
 	version  string
 	login    *template.Template            // standalone pages
@@ -28,10 +30,11 @@ type Handler struct {
 
 // NewHandler builds the web UI. version is the server build version ("dev"
 // for local builds); it is shown to signed-in users only.
-func NewHandler(database *db.DB, sessions *auth.SessionManager, hostname, version string) *Handler {
+func NewHandler(database *db.DB, sessions *auth.SessionManager, files *service.FileService, hostname, version string) *Handler {
 	h := &Handler{
 		db:       database,
 		sessions: sessions,
+		files:    files,
 		hostname: strings.TrimRight(hostname, "/"),
 		version:  version,
 		login:    template.Must(template.ParseFS(templateFS, "templates/login.html")),
@@ -48,14 +51,21 @@ func NewHandler(database *db.DB, sessions *auth.SessionManager, hostname, versio
 	return h
 }
 
-// RegisterRoutes registers the dashboard pages and the JSON endpoints the API
-// Keys page calls, which live under /auth/keys.
+// RegisterRoutes registers the dashboard pages and the endpoints they call:
+// file uploads, and the API key endpoints under /auth/keys.
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /{$}", h.FilesPage)
 	mux.HandleFunc("GET /keys", h.KeysPage)
-	mux.HandleFunc("POST /auth/keys", h.createKey)
 	mux.HandleFunc("GET /auth/keys", h.listKeys)
-	mux.HandleFunc("DELETE /auth/keys/{id}", h.deleteKey)
+
+	// Endpoints that change state are signed in with the session cookie, so
+	// they reject cross-site requests: other sites can't act as the user.
+	csrf := http.NewCrossOriginProtection()
+	mux.Handle("POST /auth/keys", csrf.Handler(http.HandlerFunc(h.createKey)))
+	mux.Handle("DELETE /auth/keys/{id}", csrf.Handler(http.HandlerFunc(h.deleteKey)))
+	// Uploads are the only way a session cookie can create files; the API
+	// under /v1/ accepts only API keys.
+	mux.Handle("POST /upload", csrf.Handler(http.HandlerFunc(h.upload)))
 }
 
 type layoutData struct {

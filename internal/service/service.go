@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"buf.build/go/protovalidate"
 	"connectrpc.com/connect/v2"
 	"google.golang.org/genproto/googleapis/api/httpbody"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -34,10 +35,10 @@ func New(store storage.Storage, database *db.DB, hostname string) *FileService {
 	return &FileService{store: store, db: database, hostname: strings.TrimRight(hostname, "/")}
 }
 
-// validateContentType checks and normalizes the content type from an HttpBody.
+// validateContentType checks and normalizes the content type of an upload.
 func validateContentType(ct string) (string, error) {
 	if strings.HasPrefix(ct, "multipart/") {
-		return "", connect.Errorf(connect.CodeInvalidArgument, "multipart uploads are not supported, use --data-binary with an explicit Content-Type header")
+		return "", errors.New("multipart uploads are not supported, use --data-binary with an explicit Content-Type header")
 	}
 	if ct == "" {
 		return "application/octet-stream", nil
@@ -129,6 +130,32 @@ func (s *FileService) replaceFile(ctx context.Context, id, owner, contentType, i
 	return s.db.GetFile(ctx, id)
 }
 
+// ErrInvalidUpload reports that UploadFile's metadata or content type breaks
+// the CreateFile rules.
+var ErrInvalidUpload = errors.New("invalid upload")
+
+// UploadFile stores r as a new file for callers outside the API, such as the
+// dashboard. meta carries the owner, content type, and optional slug, name,
+// and visibility, which are checked against the same rules as CreateFile;
+// an empty visibility uses the default. Errors for bad metadata wrap
+// ErrInvalidUpload.
+func (s *FileService) UploadFile(ctx context.Context, meta db.File, r io.Reader) (*db.File, error) {
+	ct, err := validateContentType(meta.ContentType)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidUpload, err)
+	}
+	meta.ContentType = ct
+
+	msg := &stashyv1.CreateFileRequest{Content: &httpbody.HttpBody{}, Slug: &meta.Slug, Name: &meta.Name}
+	if meta.Visibility != "" {
+		msg.Visibility = &meta.Visibility
+	}
+	if err := protovalidate.Validate(msg); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrInvalidUpload, err)
+	}
+	return s.putFile(ctx, meta, r)
+}
+
 func (s *FileService) CreateFile(
 	ctx context.Context,
 	stream stashyv1connect.FileServiceCreateFileServerStream,
@@ -160,7 +187,7 @@ func (s *FileService) CreateFile(
 		}
 		ct, err := validateContentType(msg.Content.ContentType)
 		if err != nil {
-			return nil, err
+			return nil, connect.NewError(connect.CodeInvalidArgument, err.Error())
 		}
 		contentType = ct
 		firstData = msg.Content.Data
@@ -256,7 +283,7 @@ func (s *FileService) UpdateFileContent(
 	}
 	contentType, err := validateContentType(ct)
 	if err != nil {
-		return nil, err
+		return nil, connect.NewError(connect.CodeInvalidArgument, err.Error())
 	}
 	var firstData []byte
 	if msg.Content != nil {

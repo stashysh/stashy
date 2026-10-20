@@ -6,11 +6,14 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 
 	"github.com/stashysh/stashy/internal/auth"
 	"github.com/stashysh/stashy/internal/db"
+	"github.com/stashysh/stashy/internal/service"
+	"github.com/stashysh/stashy/internal/storage/memory"
 )
 
 func newTestDB(t *testing.T) *db.DB {
@@ -44,7 +47,7 @@ func sessionRequest(t *testing.T, sessions *auth.SessionManager, target, userID 
 func TestFilesPageShowsLoginWithoutSession(t *testing.T) {
 	database := newTestDB(t)
 	sessions := auth.NewSessionManager("test-secret")
-	h := NewHandler(database, sessions, "http://example.test", "dev")
+	h := NewHandler(database, sessions, nil, "http://example.test", "dev")
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
 	rec := httptest.NewRecorder()
@@ -62,7 +65,7 @@ func TestFilesPageShowsLoginWithoutSession(t *testing.T) {
 func TestFilesPageListsFiles(t *testing.T) {
 	database := newTestDB(t)
 	sessions := auth.NewSessionManager("test-secret")
-	h := NewHandler(database, sessions, "http://example.test", "dev")
+	h := NewHandler(database, sessions, nil, "http://example.test", "dev")
 
 	user, err := database.UpsertUser(t.Context(), "g-1", "alice@example.com", "Alice")
 	if err != nil {
@@ -94,7 +97,7 @@ func TestFilesPageListsFiles(t *testing.T) {
 func TestKeysPageListsKeys(t *testing.T) {
 	database := newTestDB(t)
 	sessions := auth.NewSessionManager("test-secret")
-	h := NewHandler(database, sessions, "http://example.test", "dev")
+	h := NewHandler(database, sessions, nil, "http://example.test", "dev")
 
 	user, err := database.UpsertUser(t.Context(), "g-1", "alice@example.com", "Alice")
 	if err != nil {
@@ -151,7 +154,7 @@ func TestFooterShowsVersionToSignedInUsers(t *testing.T) {
 		{"0.9.2", ">v0.9.2</p>"},
 		{"dev", ">dev</p>"},
 	} {
-		h := NewHandler(database, sessions, "http://example.test", tc.version)
+		h := NewHandler(database, sessions, nil, "http://example.test", tc.version)
 
 		rec := httptest.NewRecorder()
 		h.KeysPage(rec, sessionRequest(t, sessions, "/keys", user.ID))
@@ -170,7 +173,7 @@ func TestFooterShowsVersionToSignedInUsers(t *testing.T) {
 func TestFilesPageColumns(t *testing.T) {
 	database := newTestDB(t)
 	sessions := auth.NewSessionManager("test-secret")
-	h := NewHandler(database, sessions, "http://example.test", "dev")
+	h := NewHandler(database, sessions, nil, "http://example.test", "dev")
 	user, err := database.UpsertUser(t.Context(), "g-1", "alice@example.com", "Alice")
 	if err != nil {
 		t.Fatalf("UpsertUser: %v", err)
@@ -201,5 +204,76 @@ func TestFilesPageColumns(t *testing.T) {
 	}
 	if strings.Contains(body, ">Report.pdf</a>") {
 		t.Errorf("names should not be links")
+	}
+}
+
+// TestRegisterRoutesProtectsStateChanges checks the dashboard's state-changing
+// endpoints: they need a session, reject cross-site requests, and uploads
+// create files for the signed-in user.
+func TestRegisterRoutesProtectsStateChanges(t *testing.T) {
+	database := newTestDB(t)
+	sessions := auth.NewSessionManager("test-secret")
+	user, err := database.UpsertUser(t.Context(), "g-1", "alice@example.com", "Alice")
+	if err != nil {
+		t.Fatalf("UpsertUser: %v", err)
+	}
+
+	files := service.New(memory.New(), database, "http://example.test")
+	mux := http.NewServeMux()
+	NewHandler(database, sessions, files, "http://example.test", "dev").RegisterRoutes(mux)
+
+	// uploads counts the files the user owns.
+	uploads := func() int {
+		t.Helper()
+		list, err := database.ListFiles(t.Context(), user.ID, 100, time.Time{}, "")
+		if err != nil {
+			t.Fatalf("ListFiles: %v", err)
+		}
+		return len(list)
+	}
+
+	cookies := httptest.NewRecorder()
+	sessions.SetSession(cookies, user.ID)
+
+	// send makes a browser request, signed in as user when signedIn is true,
+	// with fetchSite as Sec-Fetch-Site.
+	send := func(method, target string, signedIn bool, fetchSite string) int {
+		req := httptest.NewRequest(method, target, strings.NewReader("label=test"))
+		if signedIn {
+			for _, c := range cookies.Result().Cookies() {
+				req.AddCookie(c)
+			}
+		}
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Sec-Fetch-Site", fetchSite)
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		return rec.Code
+	}
+
+	if code := send(http.MethodPost, "/upload", true, "same-origin"); code != http.StatusOK || uploads() != 1 {
+		t.Fatalf("upload: status %d with %d files, want 200 and 1 file", code, uploads())
+	}
+	if code := send(http.MethodPost, "/upload?slug=has%20spaces", true, "same-origin"); code != http.StatusBadRequest {
+		t.Errorf("upload with a bad slug: status %d, want 400", code)
+	}
+	if code := send(http.MethodPost, "/upload", false, "same-origin"); code != http.StatusUnauthorized {
+		t.Errorf("signed-out upload: status %d, want 401", code)
+	}
+	if code := send(http.MethodPost, "/auth/keys", true, "same-origin"); code != http.StatusOK {
+		t.Errorf("create key: status %d, want 200", code)
+	}
+
+	for _, tc := range []struct{ method, target string }{
+		{http.MethodPost, "/upload"},
+		{http.MethodPost, "/auth/keys"},
+		{http.MethodDelete, "/auth/keys/some-id"},
+	} {
+		if code := send(tc.method, tc.target, true, "cross-site"); code != http.StatusForbidden {
+			t.Errorf("cross-site %s %s: status %d, want 403", tc.method, tc.target, code)
+		}
+	}
+	if n := uploads(); n != 1 {
+		t.Errorf("user has %d files after rejected uploads, want 1", n)
 	}
 }
