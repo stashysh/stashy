@@ -12,8 +12,6 @@ import (
 	gcstorage "cloud.google.com/go/storage"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/joho/godotenv"
@@ -207,7 +205,13 @@ func cmdServe(migrate bool) {
 	addr := ":" + port
 	log.Printf("listening on %s", addr)
 
-	if err := http.ListenAndServe(addr, h2c.NewHandler(mux, &http2.Server{})); err != nil {
+	// Serve HTTP/2 without TLS (h2c) alongside HTTP/1.1, for gRPC clients and
+	// proxies such as Cloud Run that talk HTTP/2 to the container.
+	var protocols http.Protocols
+	protocols.SetHTTP1(true)
+	protocols.SetUnencryptedHTTP2(true)
+	server := &http.Server{Addr: addr, Handler: mux, Protocols: &protocols}
+	if err := server.ListenAndServe(); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
 }
