@@ -49,11 +49,8 @@ message File {
     (google.api.field_behavior) = REQUIRED,
     (buf.validate.field).required = true
   ];
-  // Size of the content in bytes.
-  int64 size = 6 [
-    (google.api.field_behavior) = REQUIRED,
-    (buf.validate.field).int64.gte = 0
-  ];
+  // Size of the content in bytes. Never negative.
+  int64 size = 6 [(google.api.field_behavior) = REQUIRED];
   // CRC32C checksum of the content.
   string checksum = 7 [
     (google.api.field_behavior) = REQUIRED,
@@ -94,48 +91,6 @@ service FileService {
       response_body: "file"
     };
     option (gnostic.openapi.v3.operation) = {
-      parameters: {
-        parameter: {
-          name: "slug"
-          in: "query"
-          description: "Human-readable end of the file's URL (/{id}/{slug})."
-          schema: {
-            schema: {
-              type: "string"
-              max_length: 128
-              pattern: "^[A-Za-z0-9._~-]*$"
-            }
-          }
-        }
-      }
-      parameters: {
-        parameter: {
-          name: "name"
-          in: "query"
-          description: "Original filename, e.g. \"Quarterly report.pdf\"."
-          schema: {
-            schema: {
-              type: "string"
-              max_length: 255
-            }
-          }
-        }
-      }
-      parameters: {
-        parameter: {
-          name: "visibility"
-          in: "query"
-          description: "Who can open the file by its URL. Defaults to internal."
-          schema: {
-            schema: {
-              type: "string"
-              enum: {yaml: "private"}
-              enum: {yaml: "internal"}
-              enum: {yaml: "public"}
-            }
-          }
-        }
-      }
       request_body: {
         request_body: {
           content: {
