@@ -10,10 +10,10 @@ plugins:
     out: gen
     opt:
       - paths=source_relative
-  - remote: buf.build/community/sudorandom-connect-openapi:v0.28.0
+  - remote: buf.build/connectrpc/openapi:v0.30.0
     out: public
     opt:
-      - only-googleapi-http
+      - features=google.api.http
       - short-operation-ids
       - trim-unused-types
       - with-proto-names
